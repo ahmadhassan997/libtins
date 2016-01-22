@@ -140,19 +140,19 @@ TEST_F(ICMPTest, Pointer) {
 TEST_F(ICMPTest, OriginalTimestamp) {
     ICMP icmp;
     icmp.original_timestamp(0x1f8172da);
-    EXPECT_EQ(0x1f8172da, icmp.original_timestamp());
+    EXPECT_EQ(0x1f8172daU, icmp.original_timestamp());
 }
 
 TEST_F(ICMPTest, ReceiveTimestamp) {
     ICMP icmp;
     icmp.receive_timestamp(0x1f8172da);
-    EXPECT_EQ(0x1f8172da, icmp.receive_timestamp());
+    EXPECT_EQ(0x1f8172daU, icmp.receive_timestamp());
 }
 
 TEST_F(ICMPTest, TransmitTimestamp) {
     ICMP icmp;
     icmp.transmit_timestamp(0x1f8172da);
-    EXPECT_EQ(0x1f8172da, icmp.transmit_timestamp());
+    EXPECT_EQ(0x1f8172daU, icmp.transmit_timestamp());
 }
 
 TEST_F(ICMPTest, AddressMask) {
@@ -243,7 +243,7 @@ void ICMPTest::test_equals(const ICMP &icmp1, const ICMP &icmp2) {
     EXPECT_EQ(icmp1.sequence(), icmp2.sequence());
     EXPECT_EQ(icmp1.pointer(), icmp2.pointer());
     EXPECT_EQ(icmp1.mtu(), icmp2.mtu());
-    EXPECT_EQ((bool)icmp1.inner_pdu(), (bool)icmp2.inner_pdu());
+    EXPECT_EQ(icmp1.inner_pdu() != NULL, icmp2.inner_pdu() != NULL);
 }
 
 TEST_F(ICMPTest, Serialize) {
@@ -282,7 +282,7 @@ TEST_F(ICMPTest, ConstructorFromBuffer) {
                 break;
         }
         
-        ICMP icmp2(&buffer[0], buffer.size());
+        ICMP icmp2(&buffer[0], (uint32_t)buffer.size());
         test_equals(icmp1, icmp2);
     }
 }

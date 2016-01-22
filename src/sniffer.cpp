@@ -27,11 +27,11 @@
  *
  */
 
-#ifdef WIN32
+#ifdef _WIN32
     #define TINS_PREFIX_INTERFACE(x) ("\\Device\\NPF_" + x)
-#else // WIN32
+#else // _WIN32
     #define TINS_PREFIX_INTERFACE(x) (x)
-#endif // WIN32
+#endif // _WIN32
 
 #include <algorithm>
 #include <sstream>
@@ -191,11 +191,11 @@ void BaseSniffer::stop_sniff() {
 }
 
 int BaseSniffer::get_fd() {
-    #ifndef WIN32
+    #ifndef _WIN32
         return pcap_get_selectable_fd(handle);
     #else
         throw std::runtime_error("Method not supported in Windows platform");
-    #endif // WIN32
+    #endif // _WIN32
 }
 
 int BaseSniffer::link_type() const {
@@ -222,6 +222,11 @@ bool BaseSniffer::set_filter(const std::string &filter) {
 
 void BaseSniffer::set_timeout(int ms) {
     pcap_set_timeout(handle, ms);
+}
+
+bool BaseSniffer::set_direction(pcap_direction_t d) {
+	bool result = pcap_setdirection(handle, d) != -1;
+	return result;
 }
 
 // ****************************** Sniffer ******************************
@@ -341,9 +346,21 @@ void Sniffer::set_promisc_mode(bool promisc_enabled)
     }
 }
 
+void Sniffer::set_immediate_mode(bool enabled) 
+{
+    // As of libpcap version 1.5.0 this function exists. Before, it was
+    // technically always immediate mode since capture used TPACKET_V1/2
+    // which doesn't do packet buffering.
+    #ifdef HAVE_PCAP_IMMEDIATE_MODE
+    if (pcap_set_immediate_mode(get_pcap_handle(), enabled)) {
+        throw runtime_error(pcap_geterr(get_pcap_handle()));
+    }
+    #endif // HAVE_PCAP_IMMEDIATE_MODE
+}
+
 void Sniffer::set_rfmon(bool rfmon_enabled)
 {
-    #ifndef WIN32
+    #ifndef _WIN32
     if (pcap_can_set_rfmon(get_pcap_handle()) == 1) {
         if (pcap_set_rfmon(get_pcap_handle(), rfmon_enabled)) {
             throw runtime_error(pcap_geterr(get_pcap_handle()));
@@ -390,12 +407,14 @@ const unsigned SnifferConfiguration::DEFAULT_SNAP_LEN = 65535;
 const unsigned SnifferConfiguration::DEFAULT_TIMEOUT = 1000;
 
 SnifferConfiguration::SnifferConfiguration() :
+    _flags(0),
     _snap_len(DEFAULT_SNAP_LEN),
-    _has_buffer_size(false), _buffer_size(0),
-    _has_promisc(false), _promisc(false),
-    _has_rfmon(false), _rfmon(false),
-    _has_filter(false),
-    _timeout(DEFAULT_TIMEOUT)
+    _buffer_size(0),
+    _timeout(DEFAULT_TIMEOUT),
+    _promisc(false),
+    _rfmon(false),
+    _immediate_mode(false),
+    _direction(PCAP_D_INOUT)
 {
 
 }
@@ -404,20 +423,24 @@ void SnifferConfiguration::configure_sniffer_pre_activation(Sniffer& sniffer) co
 {
     sniffer.set_snap_len(_snap_len);
     sniffer.set_timeout(_timeout);
-    if (_has_buffer_size) {
+
+    if ((_flags & BUFFER_SIZE) != 0) {
         sniffer.set_buffer_size(_buffer_size);
     }
-    if (_has_promisc) {
+    if ((_flags & PROMISCUOUS) != 0) {
         sniffer.set_promisc_mode(_promisc);
     }
-    if (_has_rfmon) {
+    if ((_flags & RFMON) != 0) {
         sniffer.set_rfmon(_rfmon);
+    }
+    if ((_flags & IMMEDIATE_MODE) != 0) {
+        sniffer.set_immediate_mode(_immediate_mode);
     }
 }
 
 void SnifferConfiguration::configure_sniffer_pre_activation(FileSniffer& sniffer) const
 {
-    if (_has_filter) {
+    if ((_flags & PACKET_FILTER) != 0) {
         if (!sniffer.set_filter(_filter)) {
             throw std::runtime_error("Could not set the filter!");
         }
@@ -426,10 +449,13 @@ void SnifferConfiguration::configure_sniffer_pre_activation(FileSniffer& sniffer
 
 void SnifferConfiguration::configure_sniffer_post_activation(Sniffer& sniffer) const
 {
-    if (_has_filter) {
+    if ((_flags & PACKET_FILTER) != 0) {
         if (!sniffer.set_filter(_filter)) {
             throw std::runtime_error("Could not set the filter! ");
         }
+    }
+    if (!sniffer.set_direction(_direction)) {
+        throw std::runtime_error("Could not set the direction! ");
     }
 }
 
@@ -440,31 +466,42 @@ void SnifferConfiguration::set_snap_len(unsigned snap_len)
 
 void SnifferConfiguration::set_buffer_size(unsigned buffer_size)
 {
-    _has_buffer_size = true;
+    _flags |= BUFFER_SIZE;
     _buffer_size = buffer_size;
 }
 
 void SnifferConfiguration::set_promisc_mode(bool enabled)
 {
-    _has_promisc = true;
+    _flags |= PROMISCUOUS;
     _promisc = enabled;
 }
 
 void SnifferConfiguration::set_filter(const std::string& filter)
 {
-    _has_filter = true;
+    _flags |= PACKET_FILTER;
     _filter = filter;
 }
 
 void SnifferConfiguration::set_rfmon(bool enabled)
 {
-    _has_rfmon = true;
+    _flags |= RFMON;
     _rfmon = enabled;
 }
 
 void SnifferConfiguration::set_timeout(unsigned timeout)
 {
     _timeout = timeout;
+}
+
+void SnifferConfiguration::set_direction(pcap_direction_t direction)
+{
+    _direction = direction;
+}
+
+void SnifferConfiguration::set_immediate_mode(bool enabled) 
+{
+    _flags |= IMMEDIATE_MODE;
+    _immediate_mode = enabled;
 }
 
 }

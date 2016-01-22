@@ -83,6 +83,7 @@ struct InterfaceInfoCollector {
                     info->bcast_addr = IPv4Address(((struct sockaddr_in *)addr->ifa_dstaddr)->sin_addr.s_addr);
                 else
                     info->bcast_addr = 0;
+                info->is_up = (addr->ifa_flags & IFF_UP);
                 found_ip = true;
             }
         #else
@@ -97,9 +98,10 @@ struct InterfaceInfoCollector {
                     info->ip_addr = IPv4Address(((struct sockaddr_in *)addr->ifa_addr)->sin_addr.s_addr);
                     info->netmask = IPv4Address(((struct sockaddr_in *)addr->ifa_netmask)->sin_addr.s_addr);
                     if((addr->ifa_flags & (IFF_BROADCAST | IFF_POINTOPOINT)))
-                        info->bcast_addr = IPv4Address(((struct sockaddr_in *)addr->ifa_ifu.ifu_broadaddr)->sin_addr.s_addr);
+                        info->bcast_addr = IPv4Address(((struct sockaddr_in *)addr->ifa_broadaddr)->sin_addr.s_addr);
                     else
                         info->bcast_addr = 0;
+                    info->is_up = (addr->ifa_flags & IFF_UP);
                     found_ip = true;
                 }
             }
@@ -118,6 +120,7 @@ struct InterfaceInfoCollector {
                 info->ip_addr = IPv4Address(((const struct sockaddr_in *)unicast->Address.lpSockaddr)->sin_addr.s_addr);
                 info->netmask = IPv4Address(host_to_be<uint32_t>(0xffffffff << (32 - unicast->OnLinkPrefixLength)));
                 info->bcast_addr = IPv4Address((info->ip_addr & info->netmask) | ~info->netmask);
+                info->is_up = (iface->Flags & IP_ADAPTER_IPV4_ENABLED) != 0;
                 found_ip = true;
                 found_hw = true;
             }
@@ -177,7 +180,7 @@ NetworkInterface::NetworkInterface(IPv4Address ip) : iface_id(0) {
         Utils::route_entries(std::back_inserter(entries));
         for(entries_type::const_iterator it(entries.begin()); it != entries.end(); ++it) {
             if((ip_int & it->mask) == it->destination) {
-                if(!best_match || it->mask > best_match->mask) {
+                if(!best_match || it->mask > best_match->mask || it->metric < best_match->metric) {
                     best_match = &*it;
                 }
             }
@@ -212,19 +215,30 @@ std::string NetworkInterface::name() const {
 }
 
 NetworkInterface::Info NetworkInterface::addresses() const {
+    return info();
+}
+
+NetworkInterface::Info NetworkInterface::info() const {
     const std::string &iface_name = name();
     Info info;
     InterfaceInfoCollector collector(&info, iface_id, iface_name.c_str());
+    info.is_up = false;
     Utils::generic_iface_loop(collector);
-    // If we didn't event get the hw address, this went wrong
-    if(!collector.found_hw) {
+    
+     // If we didn't even get the hw address or ip address, this went wrong
+    if(!collector.found_hw && !collector.found_ip) {
         throw std::runtime_error("Error looking up interface address");
     }
+
     return info;
 }
 
 bool NetworkInterface::is_loopback() const {
     return addresses().ip_addr.is_loopback();
+}
+
+bool NetworkInterface::is_up() const {
+    return addresses().is_up;
 }
 
 NetworkInterface::id_type NetworkInterface::resolve_index(const char *name) {

@@ -28,6 +28,7 @@
  */
 
 #include <cstring>
+#include <algorithm>
 #include <cassert>
 #include "tcp.h"
 #include "ip.h"
@@ -36,6 +37,9 @@
 #include "rawpdu.h"
 #include "utils.h"
 #include "exceptions.h"
+#include "internals.h"
+
+using std::find_if;
 
 namespace Tins {
 
@@ -59,7 +63,7 @@ TCP::TCP(const uint8_t *buffer, uint32_t total_sz)
     if(data_offset() * sizeof(uint32_t) > total_sz || data_offset() * sizeof(uint32_t) < sizeof(tcphdr)) 
         throw malformed_packet();
     const uint8_t *header_end = buffer + (data_offset() * sizeof(uint32_t));
-    total_sz = total_sz - (header_end - buffer);
+    total_sz = static_cast<uint32_t>(total_sz - (header_end - buffer));
     buffer += sizeof(tcphdr);
     
     _total_options_size = 0;
@@ -147,7 +151,7 @@ void TCP::sack_permitted() {
 }
 
 bool TCP::has_sack_permitted() const {
-    return bool(search_option(SACK_OK));
+    return search_option(SACK_OK) != NULL;
 }
 
 void TCP::sack(const sack_type &edges) {
@@ -200,28 +204,28 @@ TCP::AltChecksums TCP::altchecksum() const {
 small_uint<1> TCP::get_flag(Flags tcp_flag) const {
     switch(tcp_flag) {
         case FIN:
-            return _tcp.fin;
+            return _tcp.flags.fin;
             break;
         case SYN:
-            return _tcp.syn;
+            return _tcp.flags.syn;
             break;
         case RST:
-            return _tcp.rst;
+            return _tcp.flags.rst;
             break;
         case PSH:
-            return _tcp.psh;
+            return _tcp.flags.psh;
             break;
         case ACK:
-            return _tcp.ack;
+            return _tcp.flags.ack;
             break;
         case URG:
-            return _tcp.urg;
+            return _tcp.flags.urg;
             break;
         case ECE:
-            return _tcp.ece;
+            return _tcp.flags.ece;
             break;
         case CWR:
-            return _tcp.cwr;
+            return _tcp.flags.cwr;
             break;
         default:
             return 0;
@@ -230,55 +234,41 @@ small_uint<1> TCP::get_flag(Flags tcp_flag) const {
 }
 
 small_uint<12> TCP::flags() const {
-    return (_tcp.res1 << 8) |
-            (_tcp.cwr << 7) |
-            (_tcp.ece << 6) |
-            (_tcp.urg << 5) |
-            (_tcp.ack << 4) |
-            (_tcp.psh << 3) |
-            (_tcp.rst << 2) |
-            (_tcp.syn << 1) |
-            _tcp.fin;
+    return (_tcp.res1 << 8) | _tcp.flags_8;
 }
 
 void TCP::set_flag(Flags tcp_flag, small_uint<1> value) {
     switch(tcp_flag) {
         case FIN:
-            _tcp.fin = value;
+            _tcp.flags.fin = value;
             break;
         case SYN:
-            _tcp.syn = value;
+            _tcp.flags.syn = value;
             break;
         case RST:
-            _tcp.rst = value;
+            _tcp.flags.rst = value;
             break;
         case PSH:
-            _tcp.psh = value;
+            _tcp.flags.psh = value;
             break;
         case ACK:
-            _tcp.ack = value;
+            _tcp.flags.ack = value;
             break;
         case URG:
-            _tcp.urg = value;
+            _tcp.flags.urg = value;
             break;
         case ECE:
-            _tcp.ece = value;
+            _tcp.flags.ece = value;
             break;
         case CWR:
-            _tcp.cwr = value;
+            _tcp.flags.cwr = value;
             break;
     };
 }
 
 void TCP::flags(small_uint<12> value) {
-    _tcp.fin = (value & FIN) ? 1 : 0;
-    _tcp.syn = (value & SYN) ? 1 : 0;
-    _tcp.rst = (value & RST) ? 1 : 0;
-    _tcp.psh = (value & PSH) ? 1 : 0;
-    _tcp.ack = (value & ACK) ? 1 : 0;
-    _tcp.urg = (value & URG) ? 1 : 0;
-    _tcp.ece = (value & ECE) ? 1 : 0;
-    _tcp.cwr = (value & CWR) ? 1 : 0;
+    _tcp.res1 = (value >> 8) & 0x0f;
+    _tcp.flags_8 = value & 0xff;
 }
 
 void TCP::add_option(const option &opt) {
@@ -300,7 +290,7 @@ void TCP::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *par
         buffer = write_option(*it, buffer);
 
     if(_options_size < _total_options_size) {
-        uint8_t padding = _options_size;
+        uint16_t padding = _options_size;
         while(padding < _total_options_size) {
             *(buffer++) = 1;
             padding++;
@@ -335,12 +325,20 @@ void TCP::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *par
     }
 }
 
-const TCP::option *TCP::search_option(OptionTypes opt) const {
-    for(options_type::const_iterator it = _options.begin(); it != _options.end(); ++it) {
-        if(it->option() == opt)
-            return &(*it);
-    }
-    return 0;
+const TCP::option *TCP::search_option(OptionTypes type) const {
+    // Search for the iterator. If we found something, return it, otherwise return nullptr.
+    options_type::const_iterator iter = search_option_iterator(type);
+    return (iter != _options.end()) ? &*iter : 0;
+}
+
+TCP::options_type::const_iterator TCP::search_option_iterator(OptionTypes type) const {
+    Internals::option_type_equality_comparator<option> comparator(type);
+    return find_if(_options.begin(), _options.end(), comparator);
+}
+
+TCP::options_type::iterator TCP::search_option_iterator(OptionTypes type) {
+    Internals::option_type_equality_comparator<option> comparator(type);
+    return find_if(_options.begin(), _options.end(), comparator);
 }
 
 /* options */
@@ -352,7 +350,7 @@ uint8_t *TCP::write_option(const option &opt, uint8_t *buffer) {
     }
     else {
         buffer[0] = opt.option();
-        buffer[1] = opt.length_field();
+        buffer[1] = static_cast<uint8_t>(opt.length_field());
         // only add the identifier and size field sizes if the length
         // field hasn't been spoofed.
         if(opt.length_field() == opt.data_size())
@@ -361,18 +359,35 @@ uint8_t *TCP::write_option(const option &opt, uint8_t *buffer) {
     }
 }
 
+void TCP::update_options_size() {
+    uint8_t padding = _options_size & 3;
+    _total_options_size = (padding) ? (_options_size - padding + 4) : _options_size;
+}
+
 void TCP::internal_add_option(const option &opt) {
-    uint8_t padding;
-    
     _options_size += sizeof(uint8_t);
     // SACK_OK contains length but not data....
-    if(opt.data_size() || opt.option() == SACK_OK)
-        _options_size += sizeof(uint8_t);
-        
-    _options_size += opt.data_size();
-    
-    padding = _options_size & 3;
-    _total_options_size = (padding) ? _options_size - padding + 4 : _options_size;
+    if(opt.data_size() || opt.option() == SACK_OK) {
+        _options_size += sizeof(uint8_t);    
+        _options_size += static_cast<uint16_t>(opt.data_size());
+    }
+    update_options_size();
+}
+
+bool TCP::remove_option(OptionTypes type) {
+    options_type::iterator iter = search_option_iterator(type);
+    if (iter == _options.end()) {
+        return false;
+    }
+    _options_size -= sizeof(uint8_t);
+    // SACK_OK contains length but not data....
+    if(iter->data_size() || iter->option() == SACK_OK) {
+        _options_size -= sizeof(uint8_t);
+        _options_size -= static_cast<uint16_t>(iter->data_size());
+    }
+    _options.erase(iter);
+    update_options_size();
+    return true;
 }
 
 bool TCP::matches_response(const uint8_t *ptr, uint32_t total_sz) const {

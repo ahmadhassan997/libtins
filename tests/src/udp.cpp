@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "udp.h"
 #include "ip.h"
-
+#include "ethernetII.h"
 
 using namespace std;
 using namespace Tins;
@@ -21,9 +21,11 @@ const uint8_t UDPTest::expected_packet[] = {
 };
 
 const uint8_t UDPTest::checksum_packet[] = {
-    69, 0, 0, 48, 35, 109, 64, 0, 64, 17, 25, 78, 0, 0, 0, 0, 127, 0, 0, 
-    1, 5, 57, 155, 11, 0, 28, 84, 167, 97, 115, 100, 97, 115, 100, 115, 
-    97, 115, 100, 97, 115, 100, 115, 97, 100, 97, 115, 100, 10
+    10, 128, 57, 251, 101, 187, 76, 128, 147, 141, 144, 65, 8, 0, 69, 0, 0, 
+    70, 14, 223, 64, 0, 64, 17, 138, 252, 10, 0, 0, 54, 75, 75, 75, 75, 215, 
+    173, 0, 53, 0, 50, 206, 155, 118, 39, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 11, 
+    48, 45, 101, 100, 103, 101, 45, 99, 104, 97, 116, 8, 102, 97, 99, 101, 
+    98, 111, 111, 107, 3, 99, 111, 109, 0, 0, 1, 0, 1
 };
 
 
@@ -33,7 +35,7 @@ void UDPTest::test_equals(const UDP& udp1, const UDP& udp2) {
     EXPECT_EQ(udp1.length(), udp2.length());
     EXPECT_EQ(udp1.size(), udp2.size());
     EXPECT_EQ(udp1.header_size(), udp2.header_size());
-    EXPECT_EQ(bool(udp1.inner_pdu()), bool(udp2.inner_pdu()));
+    EXPECT_EQ(udp1.inner_pdu() != NULL, udp2.inner_pdu() != NULL);
 }
 
 TEST_F(UDPTest, DefaultConstructor) {
@@ -44,12 +46,12 @@ TEST_F(UDPTest, DefaultConstructor) {
 }
 
 TEST_F(UDPTest, ChecksumCheck) {
-    IP pkt1(checksum_packet, sizeof(checksum_packet)); 
+    EthernetII pkt1(checksum_packet, sizeof(checksum_packet)); 
     const UDP &udp1 = pkt1.rfind_pdu<UDP>();
     uint16_t checksum = udp1.checksum();
     
-    IP::serialization_type buffer = pkt1.serialize();
-    IP pkt2(&buffer[0], buffer.size());
+    PDU::serialization_type buffer = pkt1.serialize();
+    EthernetII pkt2(&buffer[0], (uint32_t)buffer.size());
     const UDP &udp2 = pkt2.rfind_pdu<UDP>();
     EXPECT_EQ(checksum, udp2.checksum());
     EXPECT_EQ(udp1.checksum(), udp2.checksum());
@@ -108,7 +110,7 @@ TEST_F(UDPTest, ClonePDU) {
     udp1.length(length);
     
     UDP *udp2 = udp1.clone();
-    ASSERT_TRUE(udp2);
+    ASSERT_TRUE(udp2 != NULL);
     EXPECT_EQ(udp2->sport(), sport);
     EXPECT_EQ(udp2->dport(), dport);
     EXPECT_EQ(udp2->length(), length);
@@ -139,7 +141,7 @@ TEST_F(UDPTest, ConstructorFromBuffer) {
     EXPECT_EQ(udp1.sport(), 0xf51a);
     EXPECT_EQ(udp1.length(), 8);
     
-    UDP udp2(&buffer[0], buffer.size());
+    UDP udp2(&buffer[0], (uint32_t)buffer.size());
     EXPECT_EQ(udp1.dport(), udp2.dport());
     EXPECT_EQ(udp1.sport(), udp2.sport());
     EXPECT_EQ(udp1.length(), udp2.length());

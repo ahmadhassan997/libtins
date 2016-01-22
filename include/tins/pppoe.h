@@ -58,7 +58,7 @@ public:
             AC_COOKIE = 0x401,
             VENDOR_SPECIFIC = 0x501,
             RELAY_SESSION_ID = 0x101,
-            SERVICE_NAME_ERROR = 0x201,
+            SERVICE_NAME_ERROR = 0x102,
             AC_SYSTEM_ERROR = 0x202,
             GENERIC_ERROR = 0x302
         #else
@@ -240,7 +240,7 @@ public:
          * \param option The option to be added.
          */
         void add_tag(tag &&option) {
-            _tags_size += option.data_size() + sizeof(uint16_t) * 2;
+            _tags_size += static_cast<uint16_t>(option.data_size() + sizeof(uint16_t) * 2);
             _tags.push_back(std::move(option));
         }
     #endif

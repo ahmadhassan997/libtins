@@ -30,7 +30,7 @@
 #ifndef TINS_UTILS_H
 #define TINS_UTILS_H
 
-#ifndef WIN32
+#ifndef _WIN32
     #include <ifaddrs.h>
 #else
     #include <winsock2.h>
@@ -94,6 +94,11 @@ namespace Tins {
              * This route entry's subnet mask.
              */
             IPv4Address mask;
+
+            /**
+             * This route entry's metric.
+             */
+            int metric;
         };
         
         /** 
@@ -248,7 +253,7 @@ namespace Tins {
          * the object to collect data from them.
          * \param functor An instance of an class which implements operator(struct ifaddrs*).
          */
-        #ifndef WIN32
+        #ifndef _WIN32
         template<class Functor> 
         void generic_iface_loop(Functor &functor) {
             struct ifaddrs *ifaddrs = 0;
@@ -261,7 +266,7 @@ namespace Tins {
             if(ifaddrs)
                 freeifaddrs(ifaddrs);
         }
-        #else // WIN32
+        #else // _WIN32
         template<class Functor> 
         void generic_iface_loop(Functor &functor) {
             ULONG size;
@@ -276,7 +281,7 @@ namespace Tins {
                 }
             }
         }
-        #endif // WIN32
+        #endif // _WIN32
         
         template <typename T>
         struct is_pdu {  
@@ -371,17 +376,17 @@ void Tins::Utils::route_entries(ForwardIterator output) {
             else
                 entry.mask = IPv4Address(uint32_t());
             entry.interface = iface_name;
+            entry.metric = 0;
             *output++ = entry;
         }
         next += rtm->rtm_msglen;
     }
 }
-#elif defined(WIN32)
+#elif defined(_WIN32)
 template<class ForwardIterator>
 void Tins::Utils::route_entries(ForwardIterator output) {
     MIB_IPFORWARDTABLE *table;
     ULONG size = 0;
-    char iface_name[256];
     GetIpForwardTable(0, &size, 0);
     std::vector<uint8_t> buffer(size);
     table = (MIB_IPFORWARDTABLE*)&buffer[0];
@@ -389,12 +394,14 @@ void Tins::Utils::route_entries(ForwardIterator output) {
     
     for (DWORD i = 0; i < table->dwNumEntries; i++) {
         MIB_IPFORWARDROW *row = &table->table[i];
-        if(row->dwForwardType == MIB_IPROUTE_TYPE_INDIRECT) {
+        if(row->dwForwardType == MIB_IPROUTE_TYPE_INDIRECT || 
+                row->dwForwardType == MIB_IPROUTE_TYPE_DIRECT) {
             RouteEntry entry;
             entry.interface = NetworkInterface::from_index(row->dwForwardIfIndex).name();
             entry.destination = IPv4Address(row->dwForwardDest);
             entry.mask = IPv4Address(row->dwForwardMask);
             entry.gateway = IPv4Address(row->dwForwardNextHop);
+            entry.metric = row->dwForwardMetric1;
             *output++ = entry;
         }
     }
@@ -404,19 +411,22 @@ template<class ForwardIterator>
 void Tins::Utils::route_entries(ForwardIterator output) {
     using namespace Tins::Internals;
     std::ifstream input("/proc/net/route");
-    std::string destination, mask, gw;
+    std::string destination, mask, metric, gw;
     uint32_t dummy;
     skip_line(input);
     RouteEntry entry;
     while(input >> entry.interface >> destination >> gw) {
-        for(unsigned i(0); i < 5; ++i)
-            input >> mask;
+        for(unsigned i(0); i < 4; ++i)
+            input >> metric;
+        input >> mask;
         from_hex(destination, dummy);
         entry.destination = IPv4Address(dummy);
         from_hex(mask, dummy);
         entry.mask = IPv4Address(dummy);
         from_hex(gw, dummy);
         entry.gateway = IPv4Address(dummy);
+        from_hex(metric, dummy);
+        entry.metric = dummy;
         skip_line(input);
         *output = entry;
         ++output;

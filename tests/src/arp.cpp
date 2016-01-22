@@ -44,7 +44,7 @@ void ARPTest::test_equals(const ARP &arp1, const ARP &arp2) {
     EXPECT_EQ(arp1.target_ip_addr(), arp2.target_ip_addr());
     EXPECT_EQ(arp1.sender_hw_addr(), arp2.sender_hw_addr());
     EXPECT_EQ(arp1.target_hw_addr(), arp2.target_hw_addr());
-    EXPECT_EQ((bool)arp1.inner_pdu(), (bool)arp2.inner_pdu());
+    EXPECT_EQ(arp1.inner_pdu() != NULL, arp2.inner_pdu() != NULL);
 }
 
 TEST_F(ARPTest, DefaultContructor) {
@@ -152,7 +152,7 @@ TEST_F(ARPTest, ConstructorFromBuffer) {
     ARP arp1(expected_packet, sizeof(expected_packet));
     PDU::serialization_type buffer = arp1.serialize();
     
-    ARP arp2(&buffer[0], buffer.size());
+    ARP arp2(&buffer[0], (uint32_t)buffer.size());
     EXPECT_EQ(arp1.opcode(), arp2.opcode());
     ASSERT_EQ(arp1.hw_addr_length(), arp2.hw_addr_length());
     EXPECT_EQ(arp1.hw_addr_format(), arp2.hw_addr_format());

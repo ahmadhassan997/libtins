@@ -103,7 +103,7 @@ TEST_F(RSNEAPOLTest, DefaultConstructor) {
 
 TEST_F(RSNEAPOLTest, EAPOLOverSnap) {
     SNAP snap(eapol_over_snap, sizeof(eapol_over_snap));
-    EXPECT_TRUE(snap.find_pdu<RSNEAPOL>());
+    EXPECT_TRUE(snap.find_pdu<RSNEAPOL>() != NULL);
 }
 
 TEST_F(RSNEAPOLTest, ConstructorFromBuffer) {
@@ -168,7 +168,7 @@ TEST_F(RSNEAPOLTest, ConstructionTest) {
     RSNEAPOL::serialization_type buffer = eapol.serialize();
     ASSERT_EQ(sizeof(expected_packet), buffer.size());
     
-    RSNEAPOL eapol2(&buffer[0], buffer.size());
+    RSNEAPOL eapol2(&buffer[0], (uint32_t)buffer.size());
     test_equals(eapol, eapol2);
     
     EXPECT_TRUE(std::equal(buffer.begin(), buffer.end(), expected_packet));

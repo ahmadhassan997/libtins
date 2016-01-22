@@ -1,5 +1,7 @@
-libtins
-=======
+# libtins
+
+[![Build status](https://travis-ci.org/mfontanini/libtins.svg?branch=master)](https://travis-ci.org/mfontanini/libtins) 
+[![Build status](https://ci.appveyor.com/api/projects/status/33n8ib68nx3tptib/branch/master?svg=true)](https://ci.appveyor.com/project/mfontanini/libtins/branch/master)
 
 libtins is a high-level, multiplatform C++ network packet sniffing and 
 crafting library. 
@@ -84,6 +86,32 @@ in order to invalidate it, you should run(as root):
 ```Shell
 ldconfig
 ```
+
+## Running tests ##
+
+You may want to run the unit tests on your system so you make sure
+everything works. In order to do so, you need to follow these steps:
+
+```Shell
+# This will fetch the googletest submodule, needed for tests
+git submodule init
+git submodule update
+
+mkdir build
+cd build
+
+# Use any options you want
+cmake .. 
+
+# Compile tests
+make tests
+
+# Run them
+make test
+```
+
+If you find that any tests fail, please create an ticket in the
+issue tracker indicating the platform and architecture you're using.
 
 ## Examples ##
 

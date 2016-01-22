@@ -33,11 +33,13 @@
 #include "endianness.h"
 #include "dhcp.h"
 #include "ethernetII.h"
+#include "internals.h"
 #include "exceptions.h"
 
 using std::string;
 using std::list;
 using std::runtime_error;
+using std::find_if;
 
 namespace Tins {
 // Magic cookie: uint32_t. 
@@ -51,7 +53,7 @@ DHCP::DHCP(const uint8_t *buffer, uint32_t total_sz)
 : BootP(buffer, total_sz, 0), _size(sizeof(uint32_t))
 {
     buffer += BootP::header_size() - vend().size();
-    total_sz -= BootP::header_size() - vend().size();
+    total_sz -= static_cast<uint32_t>(BootP::header_size() - vend().size());
     uint8_t args[2] = {0};
     uint32_t uint32_t_buffer;
     std::memcpy(&uint32_t_buffer, buffer, sizeof(uint32_t));
@@ -86,15 +88,33 @@ void DHCP::add_option(const option &opt) {
 }
 
 void DHCP::internal_add_option(const option &opt) {
-    _size += opt.data_size() + (sizeof(uint8_t) << 1);
+    _size += static_cast<uint32_t>(opt.data_size() + (sizeof(uint8_t) << 1));
+}
+
+bool DHCP::remove_option(OptionTypes type) {
+    options_type::iterator iter = search_option_iterator(type);
+    if (iter == _options.end()) {
+        return false;
+    }
+    _size -= static_cast<uint32_t>(iter->data_size() + (sizeof(uint8_t) << 1));
+    _options.erase(iter);
+    return true;
 }
 
 const DHCP::option *DHCP::search_option(OptionTypes opt) const {
-    for(options_type::const_iterator it = _options.begin(); it != _options.end(); ++it) {
-        if(it->option() == opt)
-            return &(*it);
-    }
-    return 0;
+    // Search for the iterator. If we found something, return it, otherwise return nullptr.
+    options_type::const_iterator iter = search_option_iterator(opt);
+    return (iter != _options.end()) ? &*iter : 0;
+}
+
+DHCP::options_type::const_iterator DHCP::search_option_iterator(OptionTypes opt) const {
+    Internals::option_type_equality_comparator<option> comparator(opt);
+    return find_if(_options.begin(), _options.end(), comparator);
+}
+
+DHCP::options_type::iterator DHCP::search_option_iterator(OptionTypes opt) {
+    Internals::option_type_equality_comparator<option> comparator(opt);
+    return find_if(_options.begin(), _options.end(), comparator);
 }
 
 void DHCP::type(Flags type) {
@@ -216,7 +236,7 @@ PDU::serialization_type DHCP::serialize_list(const std::vector<ipaddress_type> &
 }
 
 uint32_t DHCP::header_size() const {
-    return BootP::header_size() - vend().size() + _size;
+    return static_cast<uint32_t>(BootP::header_size() - vend().size() + _size);
 }
 
 void DHCP::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *parent) {
@@ -231,7 +251,7 @@ void DHCP::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *pa
         *((uint32_t*)&result[0]) = Endian::host_to_be<uint32_t>(0x63825363);
         for(options_type::const_iterator it = _options.begin(); it != _options.end(); ++it) {
             *(ptr++) = it->option();
-            *(ptr++) = it->length_field();
+            *(ptr++) = static_cast<uint8_t>(it->length_field());
             std::copy(it->data_ptr(), it->data_ptr() + it->data_size(), ptr);
             ptr += it->data_size();
         }

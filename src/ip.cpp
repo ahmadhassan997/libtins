@@ -33,7 +33,7 @@
 #include <cassert>
 #endif
 #include <algorithm>
-#ifndef WIN32
+#ifndef _WIN32
     #include <netdb.h>
     #include <sys/socket.h>
     #include <netinet/in.h>
@@ -101,7 +101,7 @@ IP::IP(const uint8_t *buffer, uint32_t total_sz)
                 _ip_options.push_back(option(opt_type));
             
             ptr_buffer += _ip_options.back().data_size() + 1;
-            _options_size += _ip_options.back().data_size() + 2;
+            _options_size += static_cast<uint16_t>(_ip_options.back().data_size() + 2);
         }
         else {
             _ip_options.push_back(option(opt_type));
@@ -157,9 +157,7 @@ void IP::init_ip_fields() {
 }
 
 bool IP::is_fragmented() const {
-    // It's 0 if offset == 0 && more_frag == 0
-    // It's 0x4000 if dont_fragment = 1
-    return frag_off() != 0 && frag_off() != 0x4000;
+    return flags() == IP::MORE_FRAGMENTS || fragment_offset() != 0;
 }
 
 /* Setters */
@@ -178,6 +176,16 @@ void IP::id(uint16_t new_id) {
 
 void IP::frag_off(uint16_t new_frag_off) {
     _ip.frag_off = Endian::host_to_be(new_frag_off);
+}
+
+void IP::fragment_offset(small_uint<13> new_frag_off) {
+    uint16_t value = (Endian::be_to_host(_ip.frag_off) & 0xe000) | new_frag_off;
+    _ip.frag_off = Endian::host_to_be(value);
+}
+
+void IP::flags(Flags new_flags) {
+    uint16_t value = (Endian::be_to_host(_ip.frag_off) & 0x1fff) | (new_flags << 13);
+    _ip.frag_off = Endian::host_to_be(value);
 }
 
 void IP::ttl(uint8_t new_ttl) {
@@ -297,18 +305,40 @@ void IP::add_option(const option &opt) {
     _ip_options.push_back(opt);
 }
 
-void IP::internal_add_option(const option &opt) {
-    _options_size += 1 + opt.data_size();
+void IP::update_padded_options_size() {
     uint8_t padding = _options_size % 4;
     _padded_options_size = padding ? (_options_size - padding + 4) : _options_size;
 }
 
-const IP::option *IP::search_option(option_identifier id) const {
-    for(options_type::const_iterator it = _ip_options.begin(); it != _ip_options.end(); ++it) {
-        if(it->option() == id)
-            return &(*it);
+void IP::internal_add_option(const option &opt) {
+    _options_size += static_cast<uint16_t>(1 + opt.data_size());
+    update_padded_options_size();
+}
+
+bool IP::remove_option(option_identifier id) {
+    options_type::iterator iter = search_option_iterator(id);
+    if (iter == _ip_options.end()) {
+        return false;
     }
-    return 0;
+    _options_size -= static_cast<uint16_t>(1 + iter->data_size());
+    _ip_options.erase(iter);
+    update_padded_options_size();
+    return true;
+}
+
+const IP::option *IP::search_option(option_identifier id) const {
+    options_type::const_iterator iter = search_option_iterator(id);
+    return (iter != _ip_options.end()) ? &*iter : 0;
+}
+
+IP::options_type::const_iterator IP::search_option_iterator(option_identifier id) const {
+    Internals::option_type_equality_comparator<option> comparator(id);
+    return find_if(_ip_options.begin(), _ip_options.end(), comparator);
+}
+
+IP::options_type::iterator IP::search_option_iterator(option_identifier id) {
+    Internals::option_type_equality_comparator<option> comparator(id);
+    return find_if(_ip_options.begin(), _ip_options.end(), comparator);
 }
 
 uint8_t* IP::write_option(const option &opt, uint8_t* buffer) {
@@ -317,7 +347,7 @@ uint8_t* IP::write_option(const option &opt, uint8_t* buffer) {
     if(*buffer <= 1)
         return ++buffer;
     buffer++;
-    *buffer = opt.length_field();
+    *buffer = static_cast<uint8_t>(opt.length_field());
     if(opt.data_size() == opt.length_field())
         *buffer += 2;
     buffer++;
@@ -385,7 +415,7 @@ void IP::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU* pare
                 Internals::pdu_type_to_id<IP>(inner_pdu()->pdu_type())
             );
         }
-        if(!is_fragmented() || new_flag != 0xff)
+        if(!is_fragmented() && new_flag != 0xff)
             protocol(new_flag);
     }
     
@@ -394,7 +424,7 @@ void IP::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU* pare
             total_sz = Endian::host_to_be<uint16_t>(total_sz);
     #endif
     tot_len(total_sz);
-    head_len(my_sz / sizeof(uint32_t));
+    head_len(static_cast<uint8_t>(my_sz / sizeof(uint32_t)));
 
     memcpy(buffer, &_ip, sizeof(_ip));
 
@@ -404,13 +434,11 @@ void IP::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU* pare
     }
     memset(buffer + sizeof(_ip) + _options_size, 0, _padded_options_size - _options_size);
 
-    if(parent) {
-        uint32_t check = Utils::do_checksum(buffer, buffer + sizeof(_ip) + _padded_options_size);
-        while (check >> 16)
-            check = (check & 0xffff) + (check >> 16);
-        checksum(~check);
-        ((iphdr*)buffer)->check = _ip.check;
-    }
+    uint32_t check = Utils::do_checksum(buffer, buffer + sizeof(_ip) + _padded_options_size);
+    while (check >> 16)
+        check = (check & 0xffff) + (check >> 16);
+    checksum(~check);
+    ((iphdr*)buffer)->check = _ip.check;
 }
 
 bool IP::matches_response(const uint8_t *ptr, uint32_t total_sz) const {

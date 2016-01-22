@@ -36,6 +36,10 @@
 #include <vector>
 #include <stdint.h>
 #include <map>
+#include "config.h"
+#ifdef HAVE_PACKET_SENDER_PCAP_SENDPACKET
+    #include <pcap.h>
+#endif // HAVE_PACKET_SENDER_PCAP_SENDPACKET
 #include "network_interface.h"
 #include "macros.h"
 #include "cxxstd.h"
@@ -61,6 +65,12 @@ namespace Tins {
      * - Those that don't contain a link layer PDU. In this case, the 
      * kernel will be responsible for picking the appropriate network interface
      * based on the destination address.
+     *
+     * \par Note for Windows users:
+     * Sending layer 3 PDUs (without a link layer protocol) is very restricted
+     * on Windows (<a href="https://msdn.microsoft.com/en-us/library/windows/desktop/ms740548(v=vs.85).aspx">link</a>).
+     * Therefore it's recommended you always send packets which contain link layer PDUs.
+     * This will use Winpcap's pcap_sendpacket to inject the packets.
      *
      * Sending packets can be done via PacketSender::send:
      *
@@ -149,7 +159,7 @@ namespace Tins {
             PacketSender& operator=(PacketSender &&rhs) TINS_NOEXCEPT {
                 _sockets = std::move(rhs._sockets);
                 rhs._sockets = std::vector<int>(SOCKETS_END, INVALID_RAW_SOCKET);
-                #ifndef WIN32
+                #ifndef _WIN32
                     #if defined(BSD) || defined(__FreeBSD_kernel__)
                     _ether_socket = std::move(rhs._ether_socket);
                     #else
@@ -172,14 +182,14 @@ namespace Tins {
          */
         ~PacketSender();
 
-        #ifndef WIN32
+        #if !defined(_WIN32) || defined(HAVE_PACKET_SENDER_PCAP_SENDPACKET)
         /** 
          * \brief Opens a layer 2 socket.
          * 
          * If this operation fails, then a socket_open_error will be thrown.
          */
         void open_l2_socket(const NetworkInterface& iface = NetworkInterface());
-        #endif // WIN32
+        #endif // !_WIN32 || defined(HAVE_PACKET_SENDER_PCAP_SENDPACKET)
 
         /** 
          * \brief Opens a layer 3 socket, using the corresponding protocol
@@ -292,7 +302,7 @@ namespace Tins {
          */
         PDU *send_recv(PDU &pdu, const NetworkInterface &iface);
 
-        #ifndef WIN32
+        #ifndef _WIN32
         /** 
          * \brief Receives a layer 2 PDU response to a previously sent PDU.
          *
@@ -310,6 +320,9 @@ namespace Tins {
         PDU *recv_l2(PDU &pdu, struct sockaddr *link_addr, uint32_t len_addr,
           const NetworkInterface &iface = NetworkInterface());
 
+        #endif // _WIN32
+
+        #if !defined(_WIN32) || defined(HAVE_PACKET_SENDER_PCAP_SENDPACKET)
         /** 
          * \brief Sends a level 2 PDU.
          *
@@ -327,7 +340,7 @@ namespace Tins {
          */
         void send_l2(PDU &pdu, struct sockaddr* link_addr, uint32_t len_addr, 
           const NetworkInterface &iface = NetworkInterface());
-        #endif // WIN32
+        #endif // !_WIN32 || HAVE_PACKET_SENDER_PCAP_SENDPACKET
 
         /** 
          * \brief Receives a layer 3 PDU response to a previously sent PDU.
@@ -370,7 +383,7 @@ namespace Tins {
         PacketSender& operator=(const PacketSender&);
         int find_type(SocketType type);
         int timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y);
-        #ifndef WIN32
+        #ifndef _WIN32
             bool ether_socket_initialized(const NetworkInterface& iface = NetworkInterface()) const;
             int get_ether_socket(const NetworkInterface& iface = NetworkInterface());
         #endif
@@ -378,12 +391,15 @@ namespace Tins {
         void send(PDU &pdu, const NetworkInterface &iface) {
             static_cast<T&>(pdu).send(*this, iface);
         }
+        #ifdef HAVE_PACKET_SENDER_PCAP_SENDPACKET
+            pcap_t* make_pcap_handle(const NetworkInterface& iface) const;
+        #endif // HAVE_PACKET_SENDER_PCAP_SENDPACKET
         
         PDU *recv_match_loop(const std::vector<int>& sockets, PDU &pdu, struct sockaddr* link_addr, 
             uint32_t addrlen);
 
         std::vector<int> _sockets;
-        #ifndef WIN32
+        #ifndef _WIN32
             #if defined(BSD) || defined(__FreeBSD_kernel__)
             typedef std::map<uint32_t, int> BSDEtherSockets;
             BSDEtherSockets _ether_socket;
@@ -397,7 +413,11 @@ namespace Tins {
         // In BSD we need to store the buffer size, retrieved using BIOCGBLEN
         #if defined(BSD) || defined(__FreeBSD_kernel__)
         int buffer_size;
-        #endif
+        #endif // BSD
+        #ifdef HAVE_PACKET_SENDER_PCAP_SENDPACKET
+            typedef std::map<NetworkInterface, pcap_t*> PcapHandleMap; 
+            PcapHandleMap pcap_handles;
+        #endif // HAVE_PACKET_SENDER_PCAP_SENDPACKET
     };
 }
 

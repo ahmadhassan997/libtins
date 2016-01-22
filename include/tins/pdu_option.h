@@ -35,6 +35,7 @@
 #include <cstring>
 #include <algorithm>
 #include <string>
+#include <limits>
 #include <stdint.h>
 #include "exceptions.h"
 #include "endianness.h"
@@ -312,7 +313,7 @@ public:
      * \param data The option's data(if any).
      */
     PDUOption(option_type opt = option_type(), size_t length = 0, const data_type *data = 0) 
-    : option_(opt), size_(length) {
+    : option_(opt), size_(static_cast<uint16_t>(length)) {
         set_payload_contents(data, data + (data ? length : 0));
     }
     
@@ -397,7 +398,7 @@ public:
      */
     template<typename ForwardIterator>
     PDUOption(option_type opt, ForwardIterator start, ForwardIterator end) 
-    : option_(opt), size_(std::distance(start, end)) {
+    : option_(opt), size_(static_cast<uint16_t>(std::distance(start, end))) {
         set_payload_contents(start, end);
     }
     
@@ -417,7 +418,7 @@ public:
      * \param end The end of the option data.
      */
     template<typename ForwardIterator>
-    PDUOption(option_type opt, size_t length, ForwardIterator start, ForwardIterator end) 
+    PDUOption(option_type opt, uint16_t length, ForwardIterator start, ForwardIterator end) 
     : option_(opt), size_(length) {
         set_payload_contents(start, end);
     }
@@ -492,7 +493,11 @@ public:
 private:
     template<typename ForwardIterator>
     void set_payload_contents(ForwardIterator start, ForwardIterator end) {
-        real_size_ = std::distance(start, end);
+        size_t total_size = std::distance(start, end);
+        if (total_size > std::numeric_limits<uint16_t>::max()) {
+            throw option_payload_too_large();
+        }
+        real_size_ = static_cast<uint16_t>(total_size);
         if(real_size_ <= small_buffer_size) {
             std::copy(
                 start,
@@ -502,11 +507,12 @@ private:
         }
         else {
             payload_.big_buffer_ptr = new data_type[real_size_];
-            std::copy(
-                start, 
-                end,
-                payload_.big_buffer_ptr
-            );
+            uint8_t* ptr = payload_.big_buffer_ptr;
+            while (start < end) {
+                *ptr = *start;
+                ++ptr;
+                ++start;
+            }
         }
     }
 
@@ -517,5 +523,25 @@ private:
         data_type* big_buffer_ptr;
     } payload_;
 };
+
+namespace Internals {
+    /*
+     * \cond
+     */
+    template <typename Option>
+    struct option_type_equality_comparator {
+        option_type_equality_comparator(typename Option::option_type type) : type(type) { }
+
+        bool operator()(const Option& opt) const {
+            return opt.option() == type;
+        }
+
+        typename Option::option_type type; 
+    };
+    /*
+     * \endcond
+     */
+} // Internals
+
 } // namespace Tins
 #endif // TINS_PDU_OPTION_H

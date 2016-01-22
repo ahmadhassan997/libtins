@@ -65,16 +65,16 @@ TEST_F(IPSecAHTest, DefaultConstructor) {
     IPSecAH ipsec;
     EXPECT_EQ(0, ipsec.next_header());
     EXPECT_EQ(2, ipsec.length());
-    EXPECT_EQ(0, ipsec.spi());
-    EXPECT_EQ(0, ipsec.seq_number());
-    EXPECT_EQ(4, ipsec.icv().size());
+    EXPECT_EQ(0U, ipsec.spi());
+    EXPECT_EQ(0U, ipsec.seq_number());
+    EXPECT_EQ(4U, ipsec.icv().size());
 }
 
 TEST_F(IPSecAHTest, EthPacket) {
     EthernetII eth(whole_packet, sizeof(whole_packet));
-    EXPECT_TRUE(eth.find_pdu<IPSecAH>());
-    EXPECT_TRUE(eth.find_pdu<IPSecESP>());
-    EXPECT_TRUE(eth.find_pdu<RawPDU>());
+    EXPECT_TRUE(eth.find_pdu<IPSecAH>() != NULL);
+    EXPECT_TRUE(eth.find_pdu<IPSecESP>() != NULL);
+    EXPECT_TRUE(eth.find_pdu<RawPDU>() != NULL);
 }
 
 TEST_F(IPSecAHTest, ConstructorFromBuffer) {
@@ -82,12 +82,12 @@ TEST_F(IPSecAHTest, ConstructorFromBuffer) {
     const char *icv_ptr = "\x27\xcf\xc0\xa5\xe4\x3d\x69\xb3\x72\x8e\xc5\xb0";
     EXPECT_EQ(0x32, ipsec.next_header());
     EXPECT_EQ(4, ipsec.length());
-    EXPECT_EQ(0x8179b705, ipsec.spi());
-    EXPECT_EQ(1, ipsec.seq_number());
-    ASSERT_EQ(12, ipsec.icv().size());
+    EXPECT_EQ(0x8179b705U, ipsec.spi());
+    EXPECT_EQ(1U, ipsec.seq_number());
+    ASSERT_EQ(12ULL, ipsec.icv().size());
     EXPECT_EQ(ipsec.icv(), byte_array(icv_ptr, icv_ptr + 12));
-    EXPECT_TRUE(ipsec.find_pdu<IPSecESP>());
-    EXPECT_TRUE(ipsec.find_pdu<RawPDU>());
+    EXPECT_TRUE(ipsec.find_pdu<IPSecESP>() != NULL);
+    EXPECT_TRUE(ipsec.find_pdu<RawPDU>() != NULL);
 }
 
 TEST_F(IPSecAHTest, Serialize) {
@@ -113,13 +113,13 @@ TEST_F(IPSecAHTest, Length) {
 TEST_F(IPSecAHTest, SPI) {
     IPSecAH ipsec;
     ipsec.spi(0x73a625fa);
-    EXPECT_EQ(0x73a625fa, ipsec.spi());
+    EXPECT_EQ(0x73a625faU, ipsec.spi());
 }
 
 TEST_F(IPSecAHTest, SeqNumber) {
     IPSecAH ipsec;
     ipsec.seq_number(0x73a625fa);
-    EXPECT_EQ(0x73a625fa, ipsec.seq_number());
+    EXPECT_EQ(0x73a625faU, ipsec.seq_number());
 }
 
 TEST_F(IPSecAHTest, ICV) {
@@ -139,27 +139,27 @@ TEST_F(IPSecAHTest, ICV) {
 
 TEST_F(IPSecESPTest, DefaultConstructor) {
     IPSecESP ipsec;
-    EXPECT_EQ(0, ipsec.spi());
-    EXPECT_EQ(0, ipsec.seq_number());
+    EXPECT_EQ(0U, ipsec.spi());
+    EXPECT_EQ(0U, ipsec.seq_number());
 }
 
 TEST_F(IPSecESPTest, ConstructorFromBuffer) {
     IPSecESP ipsec(expected_packet, sizeof(expected_packet));
-    EXPECT_EQ(0x48dac2e4, ipsec.spi());
-    EXPECT_EQ(1, ipsec.seq_number());
-    EXPECT_TRUE(ipsec.find_pdu<RawPDU>());
+    EXPECT_EQ(0x48dac2e4U, ipsec.spi());
+    EXPECT_EQ(1U, ipsec.seq_number());
+    EXPECT_TRUE(ipsec.find_pdu<RawPDU>() != NULL);
 }
 
 TEST_F(IPSecESPTest, SPI) {
     IPSecESP ipsec;
     ipsec.spi(0x73a625fa);
-    EXPECT_EQ(0x73a625fa, ipsec.spi());
+    EXPECT_EQ(0x73a625faU, ipsec.spi());
 }
 
 TEST_F(IPSecESPTest, SeqNumber) {
     IPSecESP ipsec;
     ipsec.seq_number(0x73a625fa);
-    EXPECT_EQ(0x73a625fa, ipsec.seq_number());
+    EXPECT_EQ(0x73a625faU, ipsec.seq_number());
 }
 
 TEST_F(IPSecESPTest, Serialize) {

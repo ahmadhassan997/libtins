@@ -30,11 +30,11 @@ TEST_F(DHCPv6Test, ConstructorFromBuffer) {
     DHCPv6 dhcp(expected_packet, sizeof(expected_packet));
     EXPECT_EQ(DHCPv6::SOLICIT, dhcp.msg_type());
     EXPECT_EQ(0xe828b9U, dhcp.transaction_id());
-    EXPECT_TRUE(dhcp.search_option(DHCPv6::CLIENTID));
-    EXPECT_TRUE(dhcp.search_option(DHCPv6::IA_NA));
-    EXPECT_TRUE(dhcp.search_option(DHCPv6::ELAPSED_TIME));
-    EXPECT_TRUE(dhcp.search_option(DHCPv6::OPTION_REQUEST));
-    EXPECT_FALSE(dhcp.search_option(DHCPv6::SERVERID));
+    EXPECT_TRUE(dhcp.search_option(DHCPv6::CLIENTID) != NULL);
+    EXPECT_TRUE(dhcp.search_option(DHCPv6::IA_NA) != NULL);
+    EXPECT_TRUE(dhcp.search_option(DHCPv6::ELAPSED_TIME) != NULL);
+    EXPECT_TRUE(dhcp.search_option(DHCPv6::OPTION_REQUEST) != NULL);
+    EXPECT_FALSE(dhcp.search_option(DHCPv6::SERVERID) != NULL);
 }
 
 TEST_F(DHCPv6Test, Serialize) {
@@ -283,7 +283,7 @@ TEST_F(DHCPv6Test, Client_Server_ID_DUIDLL) {
     data.lladdress.push_back(209);
     dhcp.client_id(data);
     tmp = dhcp.client_id();
-    output = DHCPv6::duid_ll::from_bytes(&tmp.data[0], tmp.data.size());
+    output = DHCPv6::duid_ll::from_bytes(&tmp.data[0], (uint32_t)tmp.data.size());
     EXPECT_EQ(data.hw_type, output.hw_type);
     EXPECT_EQ(data.lladdress, output.lladdress);
     
@@ -304,7 +304,7 @@ TEST_F(DHCPv6Test, Client_Server_ID_DUIDLLT) {
     data.lladdress.push_back(209);
     dhcp.client_id(data);
     tmp = dhcp.client_id();
-    output = DHCPv6::duid_llt::from_bytes(&tmp.data[0], tmp.data.size());
+    output = DHCPv6::duid_llt::from_bytes(&tmp.data[0], (uint32_t)tmp.data.size());
     EXPECT_EQ(data.hw_type, output.hw_type);
     EXPECT_EQ(data.time, output.time);
     EXPECT_EQ(data.lladdress, output.lladdress);
@@ -325,7 +325,7 @@ TEST_F(DHCPv6Test, Client_Server_ID_DUIDEN) {
     data.identifier.push_back(209);
     dhcp.client_id(data);
     tmp = dhcp.client_id();
-    output = DHCPv6::duid_en::from_bytes(&tmp.data[0], tmp.data.size());
+    output = DHCPv6::duid_en::from_bytes(&tmp.data[0], (uint32_t)tmp.data.size());
     EXPECT_EQ(data.enterprise_number, output.enterprise_number);
     EXPECT_EQ(data.identifier, output.identifier);
     
@@ -333,4 +333,18 @@ TEST_F(DHCPv6Test, Client_Server_ID_DUIDEN) {
     tmp2 = dhcp.server_id();
     EXPECT_EQ(tmp.id, tmp2.id);
     EXPECT_EQ(tmp.data, tmp2.data);
+}
+
+TEST_F(DHCPv6Test, RemoveOption) {
+    DHCPv6 dhcp;
+    PDU::serialization_type old_buffer = dhcp.serialize();
+
+    dhcp.server_unicast("fe00:0a9d:dd23::1");
+    dhcp.preference(12);
+
+    EXPECT_TRUE(dhcp.remove_option(DHCPv6::UNICAST));
+    EXPECT_TRUE(dhcp.remove_option(DHCPv6::PREFERENCE));
+
+    PDU::serialization_type new_buffer = dhcp.serialize();
+    EXPECT_EQ(old_buffer, new_buffer);
 }

@@ -5,14 +5,14 @@
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  * * Redistributions of source code must retain the above copyright
  *   notice, this list of conditions and the following disclaimer.
  * * Redistributions in binary form must reproduce the above
  *   copyright notice, this list of conditions and the following disclaimer
  *   in the documentation and/or other materials provided with the
  *   distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -50,11 +50,11 @@ namespace Tins {
     /**
      * \class BaseSniffer
      * \brief Base class for sniffers.
-     * 
+     *
      * This class implements the basic sniffing operations. Subclasses
      * should only initialize this object using a pcap_t pointer, which
      * will be used to extract packets.
-     * 
+     *
      * Initialization must be done using the BaseSniffer::init method.
      */
     class BaseSniffer {
@@ -69,17 +69,17 @@ namespace Tins {
              * \brief Move constructor.
              * This constructor is available only in C++11.
              */
-            BaseSniffer(BaseSniffer &&rhs) TINS_NOEXCEPT 
+            BaseSniffer(BaseSniffer &&rhs) TINS_NOEXCEPT
             : handle(nullptr), mask()
             {
                 *this = std::move(rhs);
             }
-            
+
             /**
              * \brief Move assignment operator.
              * This operator is available only in C++11.
              */
-            BaseSniffer& operator=(BaseSniffer &&rhs) TINS_NOEXCEPT 
+            BaseSniffer& operator=(BaseSniffer &&rhs) TINS_NOEXCEPT
             {
                 using std::swap;
                 swap(handle, rhs.handle);
@@ -87,99 +87,110 @@ namespace Tins {
                 return *this;
             }
         #endif
-    
+
         /**
          * \brief Sniffer destructor.
          * This frees all memory used by the pcap handle.
          */
         virtual ~BaseSniffer();
-        
+
         /**
          * \brief Compiles a filter and uses it to capture one packet.
-         * 
-         * This method returns the first valid sniffed packet that matches the 
+         *
+         * This method returns the first valid sniffed packet that matches the
          * sniffer's filter, or the first sniffed packet if no filter has
          * been set.
-         * 
+         *
          * The return type is a thin wrapper over a PDU* and a Timestamp
-         * object. This wrapper can be both implicitly converted to a 
+         * object. This wrapper can be both implicitly converted to a
          * PDU* and a Packet object. So doing this:
-         * 
+         *
          * \code
          * Sniffer s(...);
          * std::unique_ptr<PDU> pdu(s.next_packet());
-         * // Packet takes care of the PDU*. 
+         * // Packet takes care of the PDU*.
          * Packet packet(s.next_packet());
          * \endcode
-         * 
+         *
          * Is fine, but this:
-         * 
+         *
          * \code
          * // bad!!
          * PtrPacket p = s.next_packet();
          * \endcode
-         * 
-         * Is not, since PtrPacket can't be copy constructed. 
-         * 
+         *
+         * Is not, since PtrPacket can't be copy constructed.
+         *
          * \sa Packet::release_pdu
-         * 
-         * \return A captured packet. If an error occured, PtrPacket::pdu 
-         * will return 0. Caller takes ownership of the PDU pointer stored in 
+         *
+         * \return A captured packet. If an error occured, PtrPacket::pdu
+         * will return 0. Caller takes ownership of the PDU pointer stored in
          * the PtrPacket.
          */
         PtrPacket next_packet();
-        
+
         /**
          * \brief Starts a sniffing loop, using a callback functor for every
          * sniffed packet.
-         * 
-         * The functor must implement an operator with one of the 
+         *
+         * The functor must implement an operator with one of the
          * following signatures:
-         * 
+         *
          * \code
          * bool(PDU&);
          * bool(const PDU&);
+         *
+         * // These two are only allowed when compiling in C++11 mode
+         * bool(Packet&);
+         * bool(const Packet&);
          * \endcode
-         * 
-         * This functor will be called using the each of the sniffed packets 
+         *
+         * This functor will be called using the each of the sniffed packets
          * as its argument. Using PDU member functions that modify the PDU,
          * such as PDU::release_inner_pdu, is perfectly valid.
-         * 
-         * Note that if you're using a functor object, it will be copied using 
+         *
+         * Note that if you're using a functor object, it will be copied using
          * its copy constructor, so it should be some kind of proxy to
          * another object which will process the packets(e.g. std::bind).
          *
-         * Sniffing will stop when either max_packets are sniffed(if it is != 0), 
+         * Sniffing will stop when either max_packets are sniffed(if it is != 0),
          * or when the functor returns false.
+         *
+         * Note that the pcap handle stored in a BaseSniffer will always be the
+         * same. This means that if you start sniffing using sniff_loop, then stop
+         * and at some point in the future you call sniff_loop again, you will keep 
+         * iterating over the same handle. If the handle points to a pcap file, then
+         * you will continue processing packets from it. If the handle points to 
+         * a network device, you will keep sniffing from it.
          *
          * This method catches both malformed_packet and pdu_not_found exceptions,
          * which allows writing much cleaner code, since you can call PDU::rfind_pdu
-         * without worrying about catching the exception that can be thrown. This 
+         * without worrying about catching the exception that can be thrown. This
          * allows writing code such as the following:
          *
         * \code
          * bool callback(const PDU& pdu) {
-         *     // If either RawPDU is not found, or construction of the DNS 
-         *     // object fails, the BaseSniffer object will trap the exceptions, 
+         *     // If either RawPDU is not found, or construction of the DNS
+         *     // object fails, the BaseSniffer object will trap the exceptions,
          *     // so we don't need to worry about it.
          *     DNS dns = pdu.rfind_pdu<RawPDU>().to<DNS>();
          *     return true;
          * }
          * \endcode
-         * 
+         *
          * \param function The callback handler object which should process packets.
          * \param max_packets The maximum amount of packets to sniff. 0 == infinite.
          */
         template<class Functor>
         void sniff_loop(Functor function, uint32_t max_packets = 0);
-        
+
         /**
          * \brief Sets a filter on this sniffer.
          * \param filter The filter to be set.
          * \return True iif it was possible to apply the filter.
          */
         bool set_filter(const std::string &filter);
-        
+
         /**
          * \brief Stops sniffing loops.
          *
@@ -202,17 +213,25 @@ namespace Tins {
         void set_timeout(int ms);
 
         /**
+         * \brief Sets direction for the sniffer.
+         *
+         * This calls pcap_setdirection using the provided parameter.
+         * \param d The direction for the sniffer.
+         */
+        bool set_direction(pcap_direction_t d);
+
+        /**
          * \brief Sets whether to extract RawPDUs or fully parsed packets.
          *
          * By default, packets will be parsed starting from link layer.
          * However, if you're parsing a lot of traffic, then you might
-         * want to extract packets and push them into a queue, 
+         * want to extract packets and push them into a queue,
          * so a consumer can parse them when they're popped.
          *
          * This method allows doing that. If the parameter is true,
          * then packets taken from this BaseSniffer will only contain
          * a RawPDU which will have to entire contents of the packet.
-         * 
+         *
          * \param value Whether to extract RawPDUs or not.
          */
         void set_extract_raw_pdus(bool value);
@@ -258,13 +277,13 @@ namespace Tins {
     private:
         BaseSniffer(const BaseSniffer&);
         BaseSniffer &operator=(const BaseSniffer&);
-        
+
         pcap_t *handle;
         bpf_u_int32 mask;
         bool extract_raw;
     };
-    
-    /** 
+
+    /**
      * \class Sniffer
      * \brief Sniffs packets from a network interface.
      */
@@ -288,7 +307,7 @@ namespace Tins {
          * when constructing a Sniffer object.
          *
          * \sa SnifferConfiguration
-         * 
+         *
          * \param device The device which will be sniffed.
          * \param configuration The configuration object to use to setup the sniffer.
          */
@@ -300,7 +319,7 @@ namespace Tins {
          * By default the interface won't be put into promiscuous mode, and won't
          * be put into monitor mode.
          *
-         * \deprecated Use the Sniffer(const std::string&, const SnifferConfiguration&) 
+         * \deprecated Use the Sniffer(const std::string&, const SnifferConfiguration&)
          * constructor.
          * \param device The device which will be sniffed.
          * \param max_packet_size The maximum packet size to be read.
@@ -317,14 +336,14 @@ namespace Tins {
          * The maximum capture size is set to 65535. By default the interface won't
          * be put into promiscuous mode, and won't be put into monitor mode.
          *
-         * \deprecated Use the Sniffer(const std::string&, const SnifferConfiguration&) 
+         * \deprecated Use the Sniffer(const std::string&, const SnifferConfiguration&)
          * constructor.
          * \param device The device which will be sniffed.
          * \param promisc Indicates if the interface should be put in promiscuous mode.
          * \param filter A capture filter to be used on the sniffing session.(optional);
          * \param rfmon Indicates if the interface should be put in monitor mode.(optional);
          */
-        Sniffer(const std::string &device, promisc_type promisc = NON_PROMISC, 
+        Sniffer(const std::string &device, promisc_type promisc = NON_PROMISC,
           const std::string &filter = "", bool rfmon = false);
 
     private:
@@ -337,12 +356,14 @@ namespace Tins {
         void set_promisc_mode(bool promisc_enabled);
 
         void set_rfmon(bool rfmon_enabled);
+
+        void set_immediate_mode(bool enabled);
     };
-    
+
     /**
      * \class FileSniffer
      * \brief Reads pcap files and interprets the packets in it.
-     * 
+     *
      * This class acts exactly in the same way that Sniffer, but reads
      * packets from a pcap file instead of an interface.
      */
@@ -364,16 +385,16 @@ namespace Tins {
          */
         FileSniffer(const std::string &file_name, const std::string &filter = "");
     };
-    
+
     template<class T>
     class HandlerProxy {
     public:
         typedef T* ptr_type;
         typedef bool (T::*fun_type)(PDU&) ;
-    
-        HandlerProxy(ptr_type ptr, fun_type function) 
+
+        HandlerProxy(ptr_type ptr, fun_type function)
         : object(ptr), fun(function) {}
-        
+
         bool operator()(PDU &pdu) {
             return (object->*fun)(pdu);
         }
@@ -381,9 +402,9 @@ namespace Tins {
         ptr_type object;
         fun_type fun;
     };
-    
+
     template<class T>
-    HandlerProxy<T> make_sniffer_handler(T *ptr, typename HandlerProxy<T>::fun_type function) 
+    HandlerProxy<T> make_sniffer_handler(T *ptr, typename HandlerProxy<T>::fun_type function)
     {
         return HandlerProxy<T>(ptr, function);
     }
@@ -391,7 +412,7 @@ namespace Tins {
     /**
      * \brief Iterates over packets sniffed by a BaseSniffer.
      */
-    class SnifferIterator : public std::iterator<std::forward_iterator_tag, PDU> {
+    class SnifferIterator : public std::iterator<std::forward_iterator_tag, Packet> {
     public:
         /**
          * Constructs a SnifferIterator.
@@ -425,15 +446,15 @@ namespace Tins {
          * Dereferences the iterator.
          * \return reference to the current packet.
          */
-        PDU &operator*() {
-            return *pkt.pdu();
+        Packet &operator*() {
+            return pkt;
         }
 
         /**
          * Dereferences the iterator.
          * \return pointer to the current packet.
          */
-        PDU *operator->() {
+        Packet *operator->() {
             return &(**this);
         }
 
@@ -463,15 +484,15 @@ namespace Tins {
         Packet pkt;
     };
 
-    /** 
+    /**
      * \class SnifferConfiguration
      * \brief Represents the configuration of a BaseSniffer object.
      *
-     * This class can be used as an easy way to configure a Sniffer 
+     * This class can be used as an easy way to configure a Sniffer
      * or FileSniffer object.
      *
-     * It can be used by constructing an object of this type, 
-     * setting the desired values and then passing it to the 
+     * It can be used by constructing an object of this type,
+     * setting the desired values and then passing it to the
      * Sniffer or FileSniffer object's constructor. This sets
      * default values for some attributes:
      *
@@ -481,8 +502,8 @@ namespace Tins {
      *
      * For any of the attributes not listed above, the associated
      * pcap function which is used to set them on a pcap handle
-     * won't be called at all. 
-     * 
+     * won't be called at all.
+     *
      * This class can be used to configure a Sniffer object,
      * like this:
      *
@@ -491,7 +512,7 @@ namespace Tins {
      * SnifferConfiguration config;
      * config.set_filter("ip and port 80");
      * config.set_promisc_mode(true);
-     * 
+     *
      * // Use it on a Sniffer object.
      * Sniffer sniffer("eth0", config);
      * \endcode
@@ -552,25 +573,44 @@ namespace Tins {
          * \param timeout The timeout to be set.
          */
         void set_timeout(unsigned timeout);
+
+        /**
+         * Sets the direction option.
+         * \param direction The direction to be set.
+         */
+        void set_direction(pcap_direction_t direction);
+
+        /**
+         * Sets the immediate mode option.
+         * \param enabled The immediate mode option value.
+         */
+        void set_immediate_mode(bool enabled);
     protected:
         friend class Sniffer;
         friend class FileSniffer;
+
+        enum Flags {
+            BUFFER_SIZE = 1,
+            PROMISCUOUS = 2,
+            RFMON = 4,
+            PACKET_FILTER = 8,
+            IMMEDIATE_MODE = 16
+        };
 
         void configure_sniffer_pre_activation(Sniffer& sniffer) const;
         void configure_sniffer_pre_activation(FileSniffer& sniffer) const;
 
         void configure_sniffer_post_activation(Sniffer& sniffer) const;
 
+        uint32_t _flags;
         unsigned _snap_len;
-        bool _has_buffer_size;
         unsigned _buffer_size;
-        bool _has_promisc;
-        bool _promisc;
-        bool _has_rfmon;
-        bool _rfmon;
-        bool _has_filter;
         std::string _filter;
         unsigned _timeout;
+        bool _promisc;
+        bool _rfmon;
+        bool _immediate_mode;
+        pcap_direction_t _direction;
     };
 
     template<class Functor>
@@ -578,8 +618,13 @@ namespace Tins {
         for(iterator it = begin(); it != end(); ++it) {
             try {
                 // If the functor returns false, we're done
-                if(!function(*it))
+                #if TINS_IS_CXX11 && !defined(_MSC_VER)
+                if (!Tins::Internals::invoke_loop_cb(function, *it))
                     return;
+                #else
+                if(!function(*it->pdu()))
+                    return;
+                #endif
             }
             catch(malformed_packet&) { }
             catch(pdu_not_found&) { }
@@ -588,5 +633,5 @@ namespace Tins {
         }
     }
 }
-    
+
 #endif // TINS_SNIFFER_H

@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 #include "network_interface.h"
 #include "utils.h"
 #include "macros.h"
 
 using namespace Tins;
+using namespace std;
 
 class NetworkInterfaceTest : public ::testing::Test {
 public:
@@ -12,17 +14,14 @@ public:
 };
 
 #ifdef BSD
-const std::string NetworkInterfaceTest::iface_name("lo0"),
-                  NetworkInterfaceTest::iface_addr("");
-#elif defined(WIN32)
-// modify me on every windows environment :D
-const std::string NetworkInterfaceTest::iface_name("{INSERT-SOME-INTERFACE-NAME}"),
+const string NetworkInterfaceTest::iface_name("lo0"),
                   NetworkInterfaceTest::iface_addr("");
 #else
-const std::string NetworkInterfaceTest::iface_name("lo"),
+const string NetworkInterfaceTest::iface_name("lo"),
                   NetworkInterfaceTest::iface_addr("");
 #endif
 
+#ifndef _WIN32
 TEST_F(NetworkInterfaceTest, ConstructorFromString) {
     // just test this doesn't throw
     NetworkInterface iface(iface_name);
@@ -63,5 +62,16 @@ TEST_F(NetworkInterfaceTest, DistinctOperator) {
     NetworkInterface iface1(iface_name), iface2;
     EXPECT_NE(iface1, iface2);
 }
+#endif // _WIN32
 
-
+TEST_F(NetworkInterfaceTest, IterateOverInterfaces) {
+    vector<NetworkInterface> interfaces = NetworkInterface::all();
+    for (size_t i = 0; i < interfaces.size(); ++i) {
+        // Expect this interface to be equal to itself
+        EXPECT_EQ(interfaces[i], interfaces[i]);
+        // We expect to be able to construct the interface from a name 
+        // and they should still be equal
+        NetworkInterface iface(interfaces[i].name());
+        EXPECT_EQ(interfaces[i], iface);
+    }
+}

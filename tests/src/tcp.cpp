@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "tcp.h"
 #include "ip.h"
+#include "ethernetII.h"
 #include "utils.h"
 
 using namespace std;
@@ -12,7 +13,8 @@ using namespace Tins;
 
 class TCPTest : public testing::Test {
 public:
-    static const uint8_t expected_packet[], checksum_packet[];
+    static const uint8_t expected_packet[], checksum_packet[],
+                            partial_packet[];
     
     void test_equals(const TCP &tcp1, const TCP &tcp2);
 };
@@ -23,11 +25,16 @@ const uint8_t TCPTest::expected_packet[] = {
     18, 52, 3, 3, 122, 4, 2, 5, 10, 0, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0
 };
 
-// IP + TCP
+// Ethernet + IP + TCP
 const uint8_t TCPTest::checksum_packet[] = {
-    69, 0, 0, 40, 0, 0, 64, 0, 64, 6, 60, 206, 0, 0, 0, 0, 127, 0, 0, 1, 
-    5, 57, 199, 49, 0, 0, 0, 0, 255, 216, 70, 222, 80, 20, 0, 0, 158, 172, 
-    0, 0
+    10, 128, 57, 251, 101, 187, 76, 128, 147, 141, 144, 65, 8, 0, 69, 0, 0, 
+    60, 152, 189, 64, 0, 64, 6, 0, 19, 10, 0, 0, 54, 198, 41, 209, 140, 180, 
+    207, 1, 187, 114, 130, 185, 186, 0, 0, 0, 0, 160, 2, 114, 16, 44, 228, 0, 
+    0, 2, 4, 5, 180, 4, 2, 8, 10, 3, 81, 33, 7, 0, 0, 0, 0, 1, 3, 3, 7
+};
+
+const uint8_t TCPTest::partial_packet[] = {
+    142, 210, 0, 80, 60, 158, 102, 111, 10, 2, 46, 161, 80, 24, 0, 229, 247, 192, 0, 0
 };
 
 
@@ -39,12 +46,12 @@ TEST_F(TCPTest, DefaultConstructor) {
 }
 
 TEST_F(TCPTest, ChecksumCheck) {
-    IP pkt1(checksum_packet, sizeof(checksum_packet)); 
+    EthernetII pkt1(checksum_packet, sizeof(checksum_packet)); 
     const TCP &tcp1 = pkt1.rfind_pdu<TCP>();
     uint16_t checksum = tcp1.checksum();
     
-    IP::serialization_type buffer = pkt1.serialize();
-    IP pkt2(&buffer[0], buffer.size());
+    PDU::serialization_type buffer = pkt1.serialize();
+    EthernetII pkt2(&buffer[0], (uint32_t)buffer.size());
     const TCP &tcp2 = pkt2.rfind_pdu<TCP>();
     EXPECT_EQ(checksum, tcp2.checksum());
     EXPECT_EQ(tcp1.checksum(), tcp2.checksum());
@@ -194,10 +201,9 @@ void TCPTest::test_equals(const TCP &tcp1, const TCP &tcp2) {
     EXPECT_EQ(tcp1.checksum(), tcp2.checksum());
     EXPECT_EQ(tcp1.urg_ptr(), tcp2.urg_ptr());
     EXPECT_EQ(tcp1.data_offset(), tcp2.data_offset());
-    EXPECT_EQ((bool)tcp1.inner_pdu(), (bool)tcp2.inner_pdu());
+    EXPECT_EQ(tcp1.inner_pdu() != NULL, tcp2.inner_pdu() != NULL);
 }
 
-// This is not working, but i don't want to fix it right now.
 TEST_F(TCPTest, ConstructorFromBuffer) {
     TCP tcp1(expected_packet, sizeof(expected_packet));
     
@@ -225,8 +231,13 @@ TEST_F(TCPTest, ConstructorFromBuffer) {
     
     PDU::serialization_type buffer = tcp1.serialize();
     
-    TCP tcp2(&buffer[0], buffer.size());
+    TCP tcp2(&buffer[0], (uint32_t)buffer.size());
     test_equals(tcp1, tcp2);
+}
+
+TEST_F(TCPTest, ConstructorFromPartialBuffer) {
+    TCP tcp(partial_packet, sizeof(partial_packet));
+    EXPECT_FALSE(tcp.inner_pdu());
 }
 
 TEST_F(TCPTest, Serialize) {
@@ -251,4 +262,23 @@ TEST_F(TCPTest, SpoofedOptions) {
     // probably we'd expect it to crash if it's not working, valgrind plx
     EXPECT_EQ(3U, pdu.options().size());
     EXPECT_EQ(pdu.serialize().size(), pdu.size());
+}
+
+TEST_F(TCPTest, RemoveOption) {
+    TCP tcp(22, 987);
+    uint8_t a[] = { 1,2,3,4,5,6 };
+    // Add an option
+    tcp.mss(1400);
+    PDU::serialization_type old_buffer = tcp.serialize();
+    
+    // Add options and remove them. The serializations before and after should be equal.
+    tcp.add_option(TCP::option(TCP::SACK, 250, a, a + sizeof(a)));
+    tcp.add_option(TCP::option(TCP::SACK_OK));
+    tcp.add_option(TCP::option(TCP::NOP));
+    EXPECT_TRUE(tcp.remove_option(TCP::SACK));
+    EXPECT_TRUE(tcp.remove_option(TCP::SACK_OK));
+    EXPECT_TRUE(tcp.remove_option(TCP::NOP));
+
+    PDU::serialization_type new_buffer = tcp.serialize();
+    EXPECT_EQ(old_buffer, new_buffer);
 }

@@ -14,12 +14,19 @@
 using namespace std;
 using namespace Tins;
 
+#ifdef _WIN32
+    #define TINS_DEFAULT_TEST_IP "0.0.0.0"
+#else 
+    #define TINS_DEFAULT_TEST_IP "127.0.0.1"
+#endif
+
 class IPTest : public testing::Test {
 public:
     static const uint8_t expected_packet[], fragmented_packet[], 
         fragmented_ether_ip_packet[], tot_len_zero_packet[];
     
     void test_equals(const IP &ip1, const IP &ip2);
+    void test_overwrite_source_address(IP& ip);
 };
 
 const uint8_t IPTest::expected_packet[] = { 
@@ -484,7 +491,7 @@ TEST_F(IPTest, Constructor) {
 
 TEST_F(IPTest, ConstructorFromFragmentedPacket) {
     IP ip(fragmented_packet, sizeof(fragmented_packet));
-    ASSERT_TRUE(ip.inner_pdu());
+    ASSERT_TRUE(ip.inner_pdu() != NULL);
     EXPECT_EQ(PDU::RAW, ip.inner_pdu()->pdu_type());
 }
 
@@ -502,9 +509,9 @@ TEST_F(IPTest, SerializeFragmentedPacket) {
 
 TEST_F(IPTest, TotalLengthZeroPacket) {
     EthernetII pkt(tot_len_zero_packet, sizeof(tot_len_zero_packet));
-    ASSERT_TRUE(pkt.find_pdu<TCP>());
-    ASSERT_TRUE(pkt.find_pdu<RawPDU>());
-    EXPECT_EQ(8192, pkt.rfind_pdu<RawPDU>().payload_size());
+    ASSERT_TRUE(pkt.find_pdu<TCP>() != NULL);
+    ASSERT_TRUE(pkt.find_pdu<RawPDU>() != NULL);
+    EXPECT_EQ(8192U, pkt.rfind_pdu<RawPDU>().payload_size());
 }
 
 TEST_F(IPTest, TOS) {
@@ -517,12 +524,6 @@ TEST_F(IPTest, ID) {
     IP ip;
     ip.id(0x7f1a);
     EXPECT_EQ(ip.id(), 0x7f1a);
-}
-
-TEST_F(IPTest, FragOffset) {
-    IP ip;
-    ip.frag_off(0x7f1a);
-    EXPECT_EQ(ip.frag_off(), 0x7f1a);
 }
 
 TEST_F(IPTest, TTL) {
@@ -623,8 +624,8 @@ TEST_F(IPTest, AddOption) {
     const uint8_t data[] = { 0x15, 0x17, 0x94, 0x66, 0xff };
     IP::option_identifier id(IP::SEC, IP::CONTROL, 1);
     ip.add_option(IP::option(id, data, data + sizeof(data)));
-    const IP::option *opt;
-    ASSERT_TRUE((opt = ip.search_option(id)));
+    const IP::option *opt = ip.search_option(id);
+    ASSERT_TRUE(opt != NULL);
     ASSERT_EQ(opt->data_size(), sizeof(data));
     EXPECT_TRUE(memcmp(opt->data_ptr(), data, sizeof(data)) == 0);
 }
@@ -633,11 +634,12 @@ void IPTest::test_equals(const IP &ip1, const IP &ip2) {
     EXPECT_EQ(ip1.dst_addr(), ip2.dst_addr());
     EXPECT_EQ(ip1.src_addr(), ip2.src_addr());
     EXPECT_EQ(ip1.id(), ip2.id());
-    EXPECT_EQ(ip1.frag_off(), ip2.frag_off());
+    EXPECT_EQ(ip1.fragment_offset(), ip2.fragment_offset());
+    EXPECT_EQ(ip1.flags(), ip2.flags());
     EXPECT_EQ(ip1.tos(), ip2.tos());
     EXPECT_EQ(ip1.ttl(), ip2.ttl());
     EXPECT_EQ(ip1.version(), ip2.version());
-    EXPECT_EQ((bool)ip1.inner_pdu(), (bool)ip2.inner_pdu());
+    EXPECT_EQ(ip1.inner_pdu() != NULL, ip2.inner_pdu() != NULL);
 }
 
 TEST_F(IPTest, ConstructorFromBuffer) {
@@ -647,7 +649,7 @@ TEST_F(IPTest, ConstructorFromBuffer) {
     EXPECT_EQ(ip.src_addr(), "84.52.254.5");
     EXPECT_EQ(ip.id(), 0x7a);
     EXPECT_EQ(ip.tos(), 0x7f);
-    EXPECT_EQ(ip.frag_off(), 0x43);
+    EXPECT_EQ(ip.fragment_offset(), 0x43);
     EXPECT_EQ(ip.protocol(), 1);
     EXPECT_EQ(ip.ttl(), 0x15);
     EXPECT_EQ(ip.version(), 2);
@@ -659,29 +661,22 @@ TEST_F(IPTest, ConstructorFromBuffer) {
     EXPECT_EQ(sec.transmission_control, 0x68656cU);
 }
 
-TEST_F(IPTest, Serialize) {
-    IP ip1(expected_packet, sizeof(expected_packet));
-    PDU::serialization_type buffer = ip1.serialize();
-    ASSERT_EQ(buffer.size(), sizeof(expected_packet));
-    EXPECT_TRUE(std::equal(buffer.begin(), buffer.end(), expected_packet));
-}
-
 TEST_F(IPTest, StackedProtocols) {
-    IP ip = IP() / TCP();
+    IP ip = IP(TINS_DEFAULT_TEST_IP) / TCP();
     IP::serialization_type buffer = ip.serialize();
-    EXPECT_TRUE(IP(&buffer[0], buffer.size()).find_pdu<TCP>());
+    EXPECT_TRUE(IP(&buffer[0], (uint32_t)buffer.size()).find_pdu<TCP>() != NULL);
     
-    ip = IP() / UDP();
+    ip = IP(TINS_DEFAULT_TEST_IP) / UDP();
     buffer = ip.serialize();
-    EXPECT_TRUE(IP(&buffer[0], buffer.size()).find_pdu<UDP>());
+    EXPECT_TRUE(IP(&buffer[0], (uint32_t)buffer.size()).find_pdu<UDP>() != NULL);
     
-    ip = IP() / ICMP();
+    ip = IP(TINS_DEFAULT_TEST_IP) / ICMP();
     buffer = ip.serialize();
-    EXPECT_TRUE(IP(&buffer[0], buffer.size()).find_pdu<ICMP>());
+    EXPECT_TRUE(IP(&buffer[0], (uint32_t)buffer.size()).find_pdu<ICMP>() != NULL);
 }
 
 TEST_F(IPTest, SpoofedOptions) {
-    IP pdu;
+    IP pdu(TINS_DEFAULT_TEST_IP);
     uint8_t a[] = { 1,2,3,4,5,6 };
     pdu.add_option(
         IP::option(IP::NOOP, 250, a, a + sizeof(a))
@@ -695,4 +690,96 @@ TEST_F(IPTest, SpoofedOptions) {
     // probably we'd expect it to crash if it's not working, valgrind plx
     EXPECT_EQ(3U, pdu.options().size());
     EXPECT_EQ(pdu.serialize().size(), pdu.size());
+}
+
+TEST_F(IPTest, RemoveOption) {
+    IP ip(TINS_DEFAULT_TEST_IP);
+    PDU::serialization_type old_buffer = ip.serialize();
+
+    // Add a record route option
+    IP::record_route_type record_route(0x2d);
+    record_route.routes.push_back("192.168.2.3");
+    record_route.routes.push_back("192.168.5.1");
+    ip.record_route(record_route);
+
+    // Add a lsrr option
+    IP::lsrr_type lsrr(0x2d);
+    lsrr.routes.push_back("192.168.2.3");
+    lsrr.routes.push_back("192.168.5.1");
+    ip.lsrr(lsrr);
+    
+    EXPECT_TRUE(ip.remove_option(IP::option_identifier(IP::LSRR, IP::CONTROL, 1)));
+    EXPECT_TRUE(ip.remove_option(IP::option_identifier(IP::RR, IP::CONTROL, 0)));
+
+    PDU::serialization_type new_buffer = ip.serialize();
+    EXPECT_EQ(old_buffer, new_buffer);
+}
+
+void IPTest::test_overwrite_source_address(IP& ip) {
+    const uint8_t expected_output[] = {
+        69,0,0,40,0,1,0,0,128,6,38,186,1,2,3,4,8,8,8,8,0,32,0,12,0,
+        0,0,0,0,0,0,0,80,0,127,166,27,253,0,0
+    };
+    // Add TCP so we can check if the timestamp is correctly calculated
+    ip /= TCP(12, 32);
+
+    PDU::serialization_type buffer = ip.serialize();
+    EXPECT_EQ(IPv4Address("1.2.3.4"), ip.src_addr());
+    EXPECT_EQ(0x26ba, ip.checksum());
+
+    vector<uint8_t> output_buffer(expected_output, 
+                                  expected_output + sizeof(expected_output));
+    EXPECT_EQ(output_buffer, buffer);
+}
+
+// Only run these tests on non-osx nor freebsd
+#if !(__FreeBSD__ || defined(__FreeBSD_kernel__) || __APPLE__)
+TEST_F(IPTest, OverwriteSourceAddress) {
+    IP ip("8.8.8.8");
+    ip.src_addr("1.2.3.4");
+    test_overwrite_source_address(ip);
+}
+
+TEST_F(IPTest, OverwriteSourceAddressUsingConstructor) {
+    IP ip("8.8.8.8", "1.2.3.4");
+    test_overwrite_source_address(ip);
+}
+
+TEST_F(IPTest, OverwriteSourceAddressConstructingFromBuffer) {
+    // Only the expected packet's IP layer
+    const uint8_t expected_output[] = {
+        69,0,0,20,0,1,0,0,128,0,0,0,1,2,3,4,8,8,8,8
+    };
+    IP ip(expected_output, sizeof(expected_output));
+    test_overwrite_source_address(ip);
+}
+#endif 
+
+TEST_F(IPTest, FragmentOffset) {
+    const uint8_t packet[] = {
+        69, 0, 5, 220, 53, 162, 32, 185, 64, 17, 168, 159, 192, 168, 0, 100, 176, 5, 5, 5, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65
+    };
+    IP ip(packet, sizeof(packet));
+    EXPECT_EQ(0xb9, ip.fragment_offset());
+    EXPECT_EQ(IP::MORE_FRAGMENTS, ip.flags());
+    EXPECT_TRUE(ip.is_fragmented());
+
+    ip.fragment_offset(0x1fff);
+    EXPECT_EQ(0x1fff, ip.fragment_offset());
+    EXPECT_EQ(IP::MORE_FRAGMENTS, ip.flags());
+
+    ip.flags(IP::DONT_FRAGMENT);
+    EXPECT_EQ(0x1fff, ip.fragment_offset());
+    EXPECT_EQ(IP::DONT_FRAGMENT, ip.flags());
+
+    ip.flags(IP::FLAG_RESERVED);
+    ip.fragment_offset(0x1aed);
+    EXPECT_EQ(IP::FLAG_RESERVED, ip.flags());
+    EXPECT_EQ(0x1aed, ip.fragment_offset());
+
+    ip.flags(static_cast<IP::Flags>(0));
+    ip.fragment_offset(0);
+    EXPECT_FALSE(ip.is_fragmented());
+    ip.flags(IP::DONT_FRAGMENT);
+    EXPECT_FALSE(ip.is_fragmented());
 }

@@ -61,29 +61,29 @@ inline void test_equals(const capability_information &info1, const capability_in
      EXPECT_EQ(info1.qos(), info2.qos());
      EXPECT_EQ(info1.sst(), info2.sst());
      EXPECT_EQ(info1.apsd(), info2.apsd());
-     EXPECT_EQ(info1.reserved(), info2.reserved());
+     EXPECT_EQ(info1.radio_measurement(), info2.radio_measurement());
      EXPECT_EQ(info1.dsss_ofdm(), info2.dsss_ofdm());
      EXPECT_EQ(info1.delayed_block_ack(), info2.delayed_block_ack());
      EXPECT_EQ(info1.immediate_block_ack(), info2.immediate_block_ack());
 }
 
 inline void test_equals_empty(const capability_information &info) {
-    EXPECT_EQ(info.ess(), 0);
-    EXPECT_EQ(info.ibss(), 0);
-    EXPECT_EQ(info.cf_poll(), 0);
-    EXPECT_EQ(info.cf_poll_req(), 0);
-    EXPECT_EQ(info.privacy(), 0);
-    EXPECT_EQ(info.short_preamble(), 0);
-    EXPECT_EQ(info.pbcc(), 0);
-    EXPECT_EQ(info.channel_agility(), 0);
-    EXPECT_EQ(info.spectrum_mgmt(), 0);
-    EXPECT_EQ(info.qos(), 0);
-    EXPECT_EQ(info.sst(), 0);
-    EXPECT_EQ(info.apsd(), 0);
-    EXPECT_EQ(info.reserved(), 0);
-    EXPECT_EQ(info.dsss_ofdm(), 0);
-    EXPECT_EQ(info.delayed_block_ack(), 0);
-    EXPECT_EQ(info.immediate_block_ack(), 0);
+    EXPECT_EQ(info.ess(), false);
+    EXPECT_EQ(info.ibss(), false);
+    EXPECT_EQ(info.cf_poll(), false);
+    EXPECT_EQ(info.cf_poll_req(), false);
+    EXPECT_EQ(info.privacy(), false);
+    EXPECT_EQ(info.short_preamble(), false);
+    EXPECT_EQ(info.pbcc(), false);
+    EXPECT_EQ(info.channel_agility(), false);
+    EXPECT_EQ(info.spectrum_mgmt(), false);
+    EXPECT_EQ(info.qos(), false);
+    EXPECT_EQ(info.sst(), false);
+    EXPECT_EQ(info.apsd(), false);
+    EXPECT_EQ(info.radio_measurement(), false);
+    EXPECT_EQ(info.dsss_ofdm(), false);
+    EXPECT_EQ(info.delayed_block_ack(), false);
+    EXPECT_EQ(info.immediate_block_ack(), false);
 }
 
 #endif // TINS_DOT11_MGMT_TEST_H

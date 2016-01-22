@@ -34,7 +34,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include "macros.h"
-#ifndef WIN32
+#ifndef _WIN32
     #if defined(BSD) || defined(__FreeBSD_kernel__)
         #include <net/if_dl.h>
     #else
@@ -87,12 +87,14 @@ uint32_t Dot3::header_size() const {
     return sizeof(ethhdr);
 }
 
-#ifndef WIN32
+#if !defined(_WIN32) || defined(HAVE_PACKET_SENDER_PCAP_SENDPACKET)
 void Dot3::send(PacketSender &sender, const NetworkInterface &iface) {
     if(!iface)
         throw invalid_interface();
         
-    #if !defined(BSD) && !defined(__FreeBSD_kernel__)
+    #if defined(BSD) || defined(__FreeBSD_kernel__) || defined(HAVE_PACKET_SENDER_PCAP_SENDPACKET)
+        sender.send_l2(*this, 0, 0, iface);
+    #else
         struct sockaddr_ll addr;
 
         memset(&addr, 0, sizeof(struct sockaddr_ll));
@@ -104,11 +106,9 @@ void Dot3::send(PacketSender &sender, const NetworkInterface &iface) {
         memcpy(&(addr.sll_addr), _eth.dst_mac, sizeof(_eth.dst_mac));
 
         sender.send_l2(*this, (struct sockaddr*)&addr, (uint32_t)sizeof(addr));
-    #else
-        sender.send_l2(*this, 0, 0, iface);
     #endif
 }
-#endif // WIN32
+#endif // !_WIN32 || HAVE_PACKET_SENDER_PCAP_SENDPACKET
 
 bool Dot3::matches_response(const uint8_t *ptr, uint32_t total_sz) const {
     if(total_sz < sizeof(ethhdr))
@@ -130,12 +130,12 @@ void Dot3::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *pa
     #ifdef TINS_DEBUG
     assert(total_sz >= header_size());
     #endif
-    _eth.length = Endian::host_to_be<uint16_t>(size() - sizeof(_eth));
+    _eth.length = Endian::host_to_be(static_cast<uint16_t>(size() - sizeof(_eth)));
 
     memcpy(buffer, &_eth, sizeof(ethhdr));
 }
 
-#ifndef WIN32
+#ifndef _WIN32
 PDU *Dot3::recv_response(PacketSender &sender, const NetworkInterface &iface) {
     if(!iface)
         throw invalid_interface();
@@ -154,5 +154,5 @@ PDU *Dot3::recv_response(PacketSender &sender, const NetworkInterface &iface) {
         return sender.recv_l2(*this, 0, 0, iface);
     #endif
 }
-#endif // WIN32
+#endif // _WIN32
 }

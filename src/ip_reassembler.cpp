@@ -52,7 +52,7 @@ void IPv4Stream::add_fragment(IP *ip) {
         return;
     fragments.insert(it, IPv4Fragment(ip->inner_pdu(), offset));
     received_size += ip->inner_pdu()->size();
-    if(!extract_more_frag(ip)) {
+    if(ip->flags() != IP::MORE_FRAGMENTS) {
         total_size = offset + ip->inner_pdu()->size();
         received_end = true;
     }
@@ -72,23 +72,20 @@ PDU *IPv4Stream::allocate_pdu() const {
     for(fragments_type::const_iterator it = fragments.begin(); it != fragments.end(); ++it) {
         if(expected != it->offset())
             return 0;
-        expected = it->offset() + it->payload().size();
+        expected = static_cast<uint16_t>(it->offset() + it->payload().size());
         buffer.insert(buffer.end(), it->payload().begin(), it->payload().end());
     }
     return Internals::pdu_from_flag(
         static_cast<Constants::IP::e>(transport_proto),
         buffer.empty() ? 0 : &buffer[0],
-        buffer.size()
+        static_cast<uint32_t>(buffer.size())
     );
 }
 
 uint16_t IPv4Stream::extract_offset(const IP *ip) {
-    return (ip->frag_off() & 0x1fff) * 8;
+    return ip->fragment_offset() * 8;
 }
 
-bool IPv4Stream::extract_more_frag(const IP *ip) {
-    return ip->frag_off() & 0x2000;
-}
 } // namespace Internals
 
 IPv4Reassembler::IPv4Reassembler(overlapping_technique technique)
@@ -102,18 +99,21 @@ IPv4Reassembler::packet_status IPv4Reassembler::process(PDU &pdu) {
     if(ip && ip->inner_pdu()) {
         // There's fragmentation
         if(ip->is_fragmented()) {
+            key_type key = make_key(ip);
             // Create it or look it up, it's the same
-            Internals::IPv4Stream &stream = streams[make_key(ip)];
+            Internals::IPv4Stream &stream = streams[key];
             stream.add_fragment(ip);
             if(stream.is_complete()) {
                 PDU *pdu = stream.allocate_pdu();
+                // Erase this stream, since it's already assembled
+                streams.erase(key);
                 // The packet is corrupt
                 if(!pdu)  {
-                    streams.erase(make_key(ip));
                     return FRAGMENTED;
                 }
                 ip->inner_pdu(pdu);
-                ip->frag_off(0);
+                ip->fragment_offset(0);
+                ip->flags(static_cast<IP::Flags>(0));
                 return REASSEMBLED;
             }
             else

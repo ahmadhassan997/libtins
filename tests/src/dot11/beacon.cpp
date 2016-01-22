@@ -33,23 +33,23 @@ void test_equals_expected(const Dot11Beacon &dot11) {
     EXPECT_EQ(dot11.interval(), 0x14fa);
     
     const Dot11Beacon::capability_information &info = dot11.capabilities();
-    EXPECT_EQ(info.ess(), 1);
-    EXPECT_EQ(info.ibss(), 0);
-    EXPECT_EQ(info.cf_poll(), 1);
-    EXPECT_EQ(info.cf_poll_req(), 0);
-    EXPECT_EQ(info.privacy(), 1);
-    EXPECT_EQ(info.short_preamble(), 0);
-    EXPECT_EQ(info.pbcc(), 0);
-    EXPECT_EQ(info.channel_agility(), 1);
-    EXPECT_EQ(info.spectrum_mgmt(), 0);
-    EXPECT_EQ(info.qos(), 0);
-    EXPECT_EQ(info.sst(), 0);
-    EXPECT_EQ(info.apsd(), 0);
-    EXPECT_EQ(info.reserved(), 0);
-    EXPECT_EQ(info.dsss_ofdm(), 1);
-    EXPECT_EQ(info.delayed_block_ack(), 0);
-    EXPECT_EQ(info.immediate_block_ack(), 0);
-    
+    EXPECT_EQ(info.ess(), true);
+    EXPECT_EQ(info.ibss(), false);
+    EXPECT_EQ(info.cf_poll(), true);
+    EXPECT_EQ(info.cf_poll_req(), false);
+    EXPECT_EQ(info.privacy(), true);
+    EXPECT_EQ(info.short_preamble(), false);
+    EXPECT_EQ(info.pbcc(), false);
+    EXPECT_EQ(info.channel_agility(), true);
+    EXPECT_EQ(info.spectrum_mgmt(), false);
+    EXPECT_EQ(info.qos(), false);
+    EXPECT_EQ(info.sst(), false);
+    EXPECT_EQ(info.apsd(), false);
+    EXPECT_EQ(info.radio_measurement(), false);
+    EXPECT_EQ(info.dsss_ofdm(), true);
+    EXPECT_EQ(info.delayed_block_ack(), false);
+    EXPECT_EQ(info.immediate_block_ack(), false);
+
     ::test_equals_expected(static_cast<const Dot11ManagementFrame&>(dot11));
 }
 
@@ -110,9 +110,9 @@ TEST_F(Dot11BeaconTest, SeqNum) {
 
 TEST_F(Dot11BeaconTest, FromBytes) {
     Internals::smart_ptr<PDU>::type dot11(Dot11::from_bytes(expected_packet, sizeof(expected_packet)));
-    ASSERT_TRUE(dot11.get());
+    ASSERT_TRUE(dot11.get() != NULL);
     const Dot11Beacon *beacon = dot11->find_pdu<Dot11Beacon>();
-    ASSERT_TRUE(beacon);
+    ASSERT_TRUE(beacon != NULL);
     test_equals_expected(*beacon);
 }
 
@@ -407,7 +407,6 @@ TEST_F(Dot11BeaconTest, RSNInformationTest) {
     EXPECT_EQ(rsn_info.akm_cyphers(), found.akm_cyphers());
 }
 
-
 TEST_F(Dot11BeaconTest, PCAPLoad1) {
     const uint8_t buffer[] = {
         128, 0, 0, 0, 255, 255, 255, 255, 255, 255, 244, 236, 56, 254, 77, 
@@ -458,6 +457,20 @@ TEST_F(Dot11BeaconTest, Serialize) {
     PDU::serialization_type buffer = pdu.serialize();
     ASSERT_EQ(sizeof(expected_packet), buffer.size());
     EXPECT_TRUE(std::equal(buffer.begin(), buffer.end(), expected_packet));
+}
+
+TEST_F(Dot11BeaconTest, RemoveOption) {
+    Dot11Beacon dot11;
+    PDU::serialization_type old_buffer = dot11.serialize();
+
+    dot11.challenge_text("libtins ftw");
+    dot11.power_constraint(0x1e);
+
+    EXPECT_TRUE(dot11.remove_option(Dot11::CHALLENGE_TEXT));
+    EXPECT_TRUE(dot11.remove_option(Dot11::POWER_CONSTRAINT));
+
+    PDU::serialization_type new_buffer = dot11.serialize();
+    EXPECT_EQ(old_buffer, new_buffer);
 }
 
 #endif // HAVE_DOT11

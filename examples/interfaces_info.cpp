@@ -1,18 +1,18 @@
 /*
- * Copyright (c) 2014, Matias Fontanini
+ * Copyright (c) 2015, Matias Fontanini
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  * * Redistributions of source code must retain the above copyright
  *   notice, this list of conditions and the following disclaimer.
  * * Redistributions in binary form must reproduce the above
  *   copyright notice, this list of conditions and the following disclaimer
  *   in the documentation and/or other materials provided with the
  *   distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -27,46 +27,32 @@
  *
  */
 
-#include <stdexcept>
-#include <cstring>
-#include "exceptions.h"
-#include "pktap.h"
-#include "internals.h"
+#include <string>
+#include <iostream>
+#include <tins/network_interface.h>
 
-namespace Tins {
+using namespace Tins;
+using namespace std;
 
-PKTAP::PKTAP() {
-    memset(&header_, 0, sizeof(header_));
+int main() {
+	// Get all interfaces and iterate over them.
+	for (const NetworkInterface& iface : NetworkInterface::all()) {
+		// Get the name of this interface
+		string name = iface.name();
+
+		// "stringify" the status of the interface
+		string status = iface.is_up() ? "up" : "down";
+		
+		// Get this interface's information (addresses).
+		NetworkInterface::Info info = iface.info();
+		
+		// Now print all of this info.
+		cout << name << ": " << endl;
+		cout << "   HW address:  " << info.hw_addr << endl
+			 << "   IP address:  " << info.ip_addr << endl
+			 << "   Netmask:     " << info.netmask << endl
+			 << "   Broadcast:   " << info.bcast_addr << endl 
+			 << "   Iface index: " << iface.id() << endl
+			 << "   Status:      " << "interface " << status << endl << endl;
+	}
 }
-
-PKTAP::PKTAP(const uint8_t* buffer, uint32_t total_sz) {
-    if (total_sz < sizeof(pktap_header)) {
-        throw malformed_packet();
-    }
-    memcpy(&header_, buffer, sizeof(header_));
-    uint32_t header_length = header_.length;
-    if (header_length > total_sz) {
-        throw malformed_packet();
-    }
-    buffer += header_length;
-    total_sz -= header_length;
-    if (header_.next && total_sz > 0) {
-        inner_pdu(
-            Internals::pdu_from_dlt_flag(
-                header_.dlt, 
-                buffer, 
-                total_sz
-            )
-        );
-    }
-}
-
-uint32_t PKTAP::header_size() const {
-    return sizeof(header_);
-}
-
-void PKTAP::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *parent) {
-    throw std::runtime_error("PKTAP cannot be serialized");
-}
-
-} // Tins

@@ -4,12 +4,16 @@
 #include "ipv6_address.h"
 #include "utils.h"
 
+// Really nice and unique macro names, Windows :D
+#undef IN
+
 using namespace Tins;
 
 
 class DNSTest : public testing::Test {
 public:
-    static const uint8_t expected_packet[], dns_response1[];
+    static const uint8_t expected_packet[], dns_response1[],
+                        dns_packet1[];
     
     void test_equals(const DNS &dns1, const DNS &dns2);
     void test_equals(const DNS::Query &q1, const DNS::Query &q2);
@@ -24,7 +28,19 @@ const uint8_t DNSTest::expected_packet[] = {
 };
 
 const uint8_t DNSTest::dns_response1[] = {
-174, 73, 129, 128, 0, 1, 0, 5, 0, 0, 0, 0, 6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 15, 0, 1, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 17, 0, 50, 4, 97, 108, 116, 52, 5, 97, 115, 112, 109, 120, 1, 108, 192, 12, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 9, 0, 40, 4, 97, 108, 116, 51, 192, 47, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 9, 0, 20, 4, 97, 108, 116, 49, 192, 47, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 4, 0, 10, 192, 47, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 9, 0, 30, 4, 97, 108, 116, 50, 192, 47
+    174, 73, 129, 128, 0, 1, 0, 5, 0, 0, 0, 0, 6, 103, 111, 111, 103, 108, 
+    101, 3, 99, 111, 109, 0, 0, 15, 0, 1, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 
+    0, 17, 0, 50, 4, 97, 108, 116, 52, 5, 97, 115, 112, 109, 120, 1, 108, 
+    192, 12, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 9, 0, 40, 4, 97, 108, 
+    116, 51, 192, 47, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 9, 0, 20, 4, 
+    97, 108, 116, 49, 192, 47, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 4, 
+    0, 10, 192, 47, 192, 12, 0, 15, 0, 1, 0, 0, 2, 88, 0, 9, 0, 30, 4, 97, 
+    108, 116, 50, 192, 47
+};
+
+const uint8_t DNSTest::dns_packet1[] = {
+    2, 225, 1, 32, 0, 1, 0, 0, 0, 0, 0, 0, 7, 118, 101, 114, 115, 105, 
+    111, 110, 4, 98, 105, 110, 100, 192, 27, 0, 16, 0, 3
 };
 
 
@@ -47,7 +63,7 @@ void DNSTest::test_equals(const DNS &dns1, const DNS &dns2) {
     EXPECT_EQ(dns1.additional_count(), dns2.additional_count());
     EXPECT_EQ(dns1.pdu_type(), dns2.pdu_type());
     EXPECT_EQ(dns1.header_size(), dns2.header_size());
-    EXPECT_EQ(bool(dns1.inner_pdu()), bool(dns2.inner_pdu()));
+    EXPECT_EQ(dns1.inner_pdu() != NULL, dns2.inner_pdu() != NULL);
 }
 
 void DNSTest::test_equals(const DNS::Query &q1, const DNS::Query &q2) {
@@ -124,6 +140,22 @@ TEST_F(DNSTest, ConstructorFromBuffer2) {
             );
         }
     }
+}
+
+TEST_F(DNSTest, ConstructorFromBuffer3) {
+    DNS dns(dns_packet1, sizeof(dns_packet1));
+    EXPECT_EQ(dns.questions_count(), 1);
+    DNS::queries_type queries = dns.queries();
+    ASSERT_EQ(1UL, queries.size());
+    EXPECT_EQ("version.bind", queries.front().dname());
+}
+
+TEST_F(DNSTest, NoRecords) {
+    DNS dns;
+    EXPECT_TRUE(dns.queries().empty());
+    EXPECT_TRUE(dns.answers().empty());
+    EXPECT_TRUE(dns.authority().empty());
+    EXPECT_TRUE(dns.additional().empty());
 }
 
 TEST_F(DNSTest, Serialization) {
@@ -286,7 +318,7 @@ TEST_F(DNSTest, Authority) {
     ASSERT_EQ(dns.authority_count(), 2);
     
     DNS::resources_type resources = dns.authority();
-    EXPECT_EQ(2, resources.size());
+    EXPECT_EQ(2ULL, resources.size());
     for(DNS::resources_type::const_iterator it = resources.begin(); it != resources.end(); ++it) {
         EXPECT_EQ("www.example.com", it->dname());
         EXPECT_EQ(it->type(), DNS::CNAME);
@@ -397,7 +429,7 @@ TEST_F(DNSTest, ItAintGonnaCorrupt) {
     
     // Check authority records
     resources = dns.authority();
-    EXPECT_EQ(1, resources.size());
+    EXPECT_EQ(1ULL, resources.size());
     for(DNS::resources_type::const_iterator it = resources.begin(); it != resources.end(); ++it) {
         EXPECT_EQ("www.example.com", it->dname());
         EXPECT_EQ(it->type(), DNS::CNAME);
@@ -409,7 +441,7 @@ TEST_F(DNSTest, ItAintGonnaCorrupt) {
         
     // Check additional records
     resources = dns.additional();
-    EXPECT_EQ(1, resources.size());
+    EXPECT_EQ(1ULL, resources.size());
     for(DNS::resources_type::const_iterator it = resources.begin(); it != resources.end(); ++it) {
         EXPECT_EQ("www.example.com", it->dname());
         EXPECT_EQ(it->type(), DNS::CNAME);

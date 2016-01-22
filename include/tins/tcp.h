@@ -468,6 +468,17 @@ namespace Tins {
         #endif
 
         /**
+         * \brief Removes a TCP option.
+         * 
+         * If there are multiple options of the given type, only the first one
+         * will be removed.
+         *
+         * \param type The type of the option to be removed.
+         * \return true if the option was removed, false otherwise.
+         */
+        bool remove_option(OptionTypes type);
+
+        /**
          * \brief Returns the header size.
          *
          * This metod overrides PDU::header_size. This size includes the
@@ -494,11 +505,11 @@ namespace Tins {
         PDUType pdu_type() const { return PDU::TCP; }
 
         /**
-         * \brief Searchs for an option that matchs the given flag.
-         * \param opt_flag The flag to be searched.
+         * \brief Searchs for an option that matchs the given type.
+         * \param type The option type to be searched.
          * \return A pointer to the option, or 0 if it was not found.
          */
-        const option *search_option(OptionTypes opt) const;
+        const option *search_option(OptionTypes type) const;
         
         /**
          * \sa PDU::clone
@@ -507,6 +518,32 @@ namespace Tins {
             return new TCP(*this);
         }
     private:
+        #if TINS_IS_LITTLE_ENDIAN
+            TINS_BEGIN_PACK
+            struct flags_type {
+                uint8_t fin:1,
+                    syn:1,
+                    rst:1,
+                    psh:1,
+                    ack:1,
+                    urg:1,
+                    ece:1,
+                    cwr:1;
+            } TINS_END_PACK;
+        #else
+            TINS_BEGIN_PACK
+            struct flags_type {
+                uint8_t cwr:1,
+                    ece:1,
+                    urg:1,
+                    ack:1,
+                    psh:1,
+                    rst:1,
+                    syn:1,
+                    fin:1;
+            } TINS_END_PACK;
+        #endif
+
         TINS_BEGIN_PACK
         struct tcphdr {
             uint16_t sport;
@@ -514,30 +551,16 @@ namespace Tins {
             uint32_t seq;
             uint32_t ack_seq;
         #if TINS_IS_LITTLE_ENDIAN
-            uint16_t res1:4,
-                doff:4,
-                fin:1,
-                syn:1,
-                rst:1,
-                psh:1,
-                ack:1,
-                urg:1,
-                ece:1,
-                cwr:1;
-        #elif TINS_IS_BIG_ENDIAN
-            uint16_t doff:4,
-                res1:4,
-                cwr:1,
-                ece:1,
-                urg:1,
-                ack:1,
-                psh:1,
-                rst:1,
-                syn:1,
-                fin:1;
+            uint8_t res1:4,
+                doff:4;
         #else
-        #error	"Endian is not LE nor BE..."
+            uint8_t doff:4,
+                res1:4;
         #endif
+            union {
+                flags_type flags;
+                uint8_t flags_8;
+            };
             uint16_t	window;
             uint16_t	check;
             uint16_t	urg_ptr;
@@ -556,6 +579,9 @@ namespace Tins {
         void internal_add_option(const option &option);
         void write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *parent);
         void checksum(uint16_t new_check);
+        void update_options_size();
+        options_type::const_iterator search_option_iterator(OptionTypes type) const;
+        options_type::iterator search_option_iterator(OptionTypes type);
         
         uint8_t *write_option(const option &opt, uint8_t *buffer);
 
@@ -563,6 +589,6 @@ namespace Tins {
         uint16_t _options_size, _total_options_size;
         options_type _options;
     };
-}
+} // Tins
 
 #endif // TINS_TCP_H

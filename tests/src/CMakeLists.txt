@@ -1,17 +1,32 @@
 # Use libtins' include directories + test include directories
-INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/include/tins/ ../include/)
+INCLUDE_DIRECTORIES(
+    ${PROJECT_SOURCE_DIR}/include/tins/ 
+    ../include/
+    ${gtest_SOURCE_DIR}/include
+    ${PCAP_INCLUDE_DIR}
+)
 
 # Find pthread library
 FIND_PACKAGE(Threads REQUIRED)
 
+LINK_DIRECTORIES(
+    ${gtest_BINARY_DIR}
+)
 # Link against GoogleTest, libtins and pthread.
 # Pthread is required by GoogleTest
 LINK_LIBRARIES(
-    ${GTEST_LIBRARIES} 
-    ${GTEST_MAIN_LIBRARY} 
+    gtest
+    gtest_main
     tins 
     ${CMAKE_THREAD_LIBS_INIT}
+    ${PCAP_LIBRARY}
 )
+
+IF(LIBTINS_ENABLE_WPA2)
+    SET(OPTIONAL_TEST_TARGETS WPA2DecryptTest)
+    ADD_EXECUTABLE(WPA2DecryptTest EXCLUDE_FROM_ALL wpa2_decrypt.cpp)
+    ADD_TEST(WPA2Decrypt WPA2DecryptTest)
+ENDIF()
 
 # Add tests target
 ADD_CUSTOM_TARGET(
@@ -71,7 +86,7 @@ ADD_CUSTOM_TARGET(
     UDPTest
     UtilsTest
     WEPDecryptTest
-    WPA2DecryptTest
+    ${OPTIONAL_TEST_TARGETS}
 )
 
 # Test executables
@@ -113,7 +128,6 @@ ADD_EXECUTABLE(TCPStreamTest EXCLUDE_FROM_ALL tcp_stream.cpp)
 ADD_EXECUTABLE(UDPTest EXCLUDE_FROM_ALL udp.cpp)
 ADD_EXECUTABLE(UtilsTest EXCLUDE_FROM_ALL utils.cpp)
 ADD_EXECUTABLE(WEPDecryptTest EXCLUDE_FROM_ALL wep_decrypt.cpp)
-ADD_EXECUTABLE(WPA2DecryptTest EXCLUDE_FROM_ALL wpa2_decrypt.cpp)
 
 # Dot11 tests executables
 
@@ -192,5 +206,4 @@ ADD_TEST(TCPStream TCPStreamTest)
 ADD_TEST(UDP UDPTest)
 ADD_TEST(Utils UtilsTest)
 ADD_TEST(WEPDecrypt WEPDecryptTest)
-ADD_TEST(WPA2Decrypt WPA2DecryptTest)
 

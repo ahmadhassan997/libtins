@@ -33,7 +33,7 @@
 #include <cassert>
 #include <cstring>
 #include "utils.h"
-#ifndef WIN32
+#ifndef _WIN32
     #if defined(BSD) || defined(__FreeBSD_kernel__)
         #include <sys/socket.h>
         #include <netinet/in.h>
@@ -43,6 +43,10 @@
     #endif
     #include <netdb.h>
     #include <net/if.h>
+    #ifdef __ANDROID_API__
+        #include <linux/in.h>
+        #include <linux/in6.h>
+    #endif
 #else
     #include <ws2tcpip.h>
 #endif
@@ -61,7 +65,7 @@ using namespace std;
 struct InterfaceCollector {
     set<string> ifaces;
     
-    #ifdef WIN32
+    #ifdef _WIN32
     bool operator() (PIP_ADAPTER_ADDRESSES addr) {
         ifaces.insert(addr->AdapterName);
         return false;

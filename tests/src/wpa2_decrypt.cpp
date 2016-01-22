@@ -1,6 +1,6 @@
 #include "config.h"
 
-#ifdef HAVE_DOT11
+#if defined(HAVE_DOT11) && defined(HAVE_WPA2_DECRYPTION)
 
 #include <gtest/gtest.h>
 #include <cstring>
@@ -127,6 +127,37 @@ TEST_F(WPA2DecryptTest, DecryptCCMPWithoutUsingBeacon) {
     }
 }
 
+TEST_F(WPA2DecryptTest, DecryptCCMPUsingKey) {
+    Crypto::WPA2Decrypter::addr_pair addresses;
+    Crypto::WPA2::SessionKeys session_keys;
+
+    {
+        Crypto::WPA2Decrypter decrypter;
+        decrypter.add_ap_data("Induction", "Coherer", "00:0c:41:82:b2:55");
+        for(size_t i = 1; i < 5; ++i) {
+            RadioTap radio(ccmp_packets[i], ccmp_packets_size[i]);
+            ASSERT_FALSE(decrypter.decrypt(radio));
+        }
+        const Crypto::WPA2Decrypter::keys_map& keys = decrypter.get_keys();
+        ASSERT_EQ(1ULL, keys.size());
+        addresses = keys.begin()->first;
+        session_keys = keys.begin()->second;
+    }
+
+    Crypto::WPA2Decrypter decrypter;
+    decrypter.add_decryption_keys(addresses, session_keys);
+    for(size_t i = 5; i < 7; ++i) {
+        RadioTap radio(ccmp_packets[i], ccmp_packets_size[i]);
+        ASSERT_TRUE(decrypter.decrypt(radio));
+        if(i == 5)
+            check_ccmp_packet5(radio);
+        else
+            check_ccmp_packet6(radio);
+    }
+
+    EXPECT_TRUE(session_keys.uses_ccmp());
+}
+
 TEST_F(WPA2DecryptTest, DecryptTKIPUsingBeacon) {
     Crypto::WPA2Decrypter decrypter;
     decrypter.add_ap_data("libtinstest", "NODO");
@@ -159,6 +190,37 @@ TEST_F(WPA2DecryptTest, DecryptTKIPWithoutUsingBeacon) {
         else 
             ASSERT_FALSE(decrypter.decrypt(radio));
     }
+}
+
+TEST_F(WPA2DecryptTest, DecryptTKIPUsingKey) {
+    Crypto::WPA2Decrypter::addr_pair addresses;
+    Crypto::WPA2::SessionKeys session_keys;
+
+    {
+        Crypto::WPA2Decrypter decrypter;
+        decrypter.add_ap_data("libtinstest", "NODO", "00:1b:11:d2:1b:eb");
+        for(size_t i = 1; i < 5; ++i) {
+            RadioTap radio(tkip_packets[i], tkip_packets_size[i]);
+            ASSERT_FALSE(decrypter.decrypt(radio));
+        }
+        const Crypto::WPA2Decrypter::keys_map& keys = decrypter.get_keys();
+        ASSERT_EQ(1ULL, keys.size());
+        addresses = keys.begin()->first;
+        session_keys = keys.begin()->second;
+    }
+
+    Crypto::WPA2Decrypter decrypter;
+    decrypter.add_decryption_keys(addresses, session_keys);
+    for(size_t i = 5; i < 7; ++i) {
+        RadioTap radio(tkip_packets[i], tkip_packets_size[i]);
+        ASSERT_TRUE(decrypter.decrypt(radio));
+        if(i == 5)
+            check_tkip_packet5(radio);
+        else
+            check_tkip_packet6(radio);
+    }
+
+    EXPECT_FALSE(session_keys.uses_ccmp());
 }
 
 TEST_F(WPA2DecryptTest, DecryptCCMPAndTKIPUsingBeacon) {
@@ -221,4 +283,4 @@ TEST_F(WPA2DecryptTest, DecryptCCMPAndTKIPWithoutUsingBeacon) {
     }
 }
 
-#endif // HAVE_DOT11
+#endif // defined(HAVE_DOT11) && defined(HAVE_WPA2_DECRYPTION)

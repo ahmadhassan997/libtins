@@ -84,16 +84,16 @@ TEST_F(ICMPv6Test, ConstructorFromBuffer2) {
     EXPECT_EQ(icmp.reachable_time(), 30000U);
     EXPECT_EQ(icmp.retransmit_timer(), 1000U);
     const ICMPv6::option *opt = icmp.search_option(ICMPv6::SOURCE_ADDRESS);
-    ASSERT_TRUE(opt);
+    ASSERT_TRUE(opt != NULL);
     EXPECT_EQ(opt->data_size(), 6U);
     EXPECT_EQ(HWAddress<6>(opt->data_ptr()), "00:60:97:07:69:ea");
     
     opt = icmp.search_option(ICMPv6::MTU);
-    ASSERT_TRUE(opt);
+    ASSERT_TRUE(opt != NULL);
     EXPECT_EQ(opt->data_size(), 6U);
     
     opt = icmp.search_option(ICMPv6::PREFIX_INFO);
-    ASSERT_TRUE(opt);
+    ASSERT_TRUE(opt != NULL);
     EXPECT_EQ(opt->data_size(), 30U);
 }
 
@@ -218,9 +218,8 @@ TEST_F(ICMPv6Test, PrefixInformation) {
 
 TEST_F(ICMPv6Test, RedirectHeader) {
     ICMPv6 icmp;
-    IP ip = IP("127.0.0.1") / TCP(22);
-    PDU::serialization_type buffer = ip.serialize();
-    buffer.insert(buffer.begin(), 6, 0);
+    EthernetII eth = EthernetII() / IP("8.8.8.8", "192.168.0.100") / TCP(22, 26);
+    PDU::serialization_type buffer = eth.serialize();
     icmp.redirect_header(buffer);
     EXPECT_EQ(buffer, icmp.redirect_header());
 }
@@ -241,7 +240,7 @@ TEST_F(ICMPv6Test, ShortcutLimit) {
     ICMPv6::shortcut_limit_type sl = icmp.shortcut_limit();
     EXPECT_EQ(123, sl.limit);
     EXPECT_EQ(0x7f, sl.reserved1);
-    EXPECT_EQ(0x12345678, sl.reserved2);
+    EXPECT_EQ(0x12345678U, sl.reserved2);
 }
 
 TEST_F(ICMPv6Test, NewAdvertisementInterval) {
@@ -469,4 +468,21 @@ TEST_F(ICMPv6Test, ChecksumCalculation) {
     EthernetII::serialization_type serialized = eth.serialize();
     const ICMPv6& icmp = eth.rfind_pdu<ICMPv6>();
     EXPECT_EQ(0x68bd, icmp.checksum());
+}
+
+TEST_F(ICMPv6Test, RemoveOption) {
+    ICMPv6 icmp;
+    PDU::serialization_type old_buffer = icmp.serialize();
+
+    ICMPv6::recursive_dns_type data(0x9283712);
+    data.servers.push_back("827d:adae::1");
+    data.servers.push_back("2929:1234:fefe::2");
+    icmp.recursive_dns_servers(data);
+    icmp.timestamp(0x2837d6aaa231ULL);
+
+    EXPECT_TRUE(icmp.remove_option(ICMPv6::TIMESTAMP));
+    EXPECT_TRUE(icmp.remove_option(ICMPv6::RECURSIVE_DNS_SERV));
+
+    PDU::serialization_type new_buffer = icmp.serialize();
+    EXPECT_EQ(old_buffer, new_buffer);
 }

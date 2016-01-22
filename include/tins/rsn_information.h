@@ -147,7 +147,9 @@ public:
      * \brief Getter for the group suite field.
      * \return The group suite field.
      */
-    CypherSuites group_suite() const { return _group_suite; }
+    CypherSuites group_suite() const { 
+        return static_cast<CypherSuites>(Endian::le_to_host<uint32_t>(_group_suite)); 
+    }
 
     /**
      * \brief Getter for the version field.

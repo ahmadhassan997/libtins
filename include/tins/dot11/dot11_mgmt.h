@@ -54,6 +54,11 @@ public:
     typedef std::vector<std::pair<uint8_t, uint8_t> > channels_type;
 
     /**
+     * The channel map container type.
+     */
+    typedef std::vector<std::pair<uint8_t, uint8_t> > channel_map_type;
+
+    /**
      * The requested information container type.
      */
     typedef std::vector<uint8_t> request_info_type;
@@ -63,6 +68,12 @@ public:
      */
     static const PDU::PDUType pdu_flag = PDU::DOT11_MANAGEMENT;
 
+    /**
+     * \brief Enum used in the reason code field.
+     *
+     * This enumeration can be used to get or set the reason code field in a
+     * Deauthentication or Disassociation
+     */
     enum ReasonCodes {
         UNSPECIFIED = 1,
         PREV_AUTH_NOT_VALID = 2,
@@ -97,6 +108,21 @@ public:
         REQUESTED_BY_STA_TIMEOUT = 39,
         PEER_STA_NOT_SUPPORT_CIPHER = 45
     };
+
+    /**
+     * \brief Enum that represents the map field within a channels map field.
+     *
+     * These bitmasks can be used to get or set the second value of
+     * ibss_dfs_params().channel_map
+     */
+    enum MapMask {
+        BSS                 = 0x1,
+        OFDM_PREAMBLE       = 0x2,
+        UNIDENTIFIED_SIGNAL = 0x4,
+        RADAR               = 0x8,
+        UNMEASURED          = 0x10,
+        RESERVED            = 0xE0
+    };
     
     /**
      * Represents the IEEE 802.11 frames' capability information.
@@ -117,7 +143,7 @@ public:
                      _qos:1,
                      _sst:1,
                      _apsd:1,
-                     _reserved:1,
+                     _radio_measurement:1,
                      _dsss_ofdm:1,
                      _delayed_block_ack:1,
                      _immediate_block_ack:1;
@@ -129,11 +155,11 @@ public:
                      _cf_poll_req:1,
                      _cf_poll:1,
                      _ibss:1,
-                    _ess:1,
-                    _immediate_block_ack:1,
+                     _ess:1,
+                     _immediate_block_ack:1,
                      _delayed_block_ack:1,
                      _dsss_ofdm:1,
-                     _reserved:1,
+                     _radio_measurement:1,
                      _apsd:1,
                      _sst:1,
                      _qos:1,
@@ -225,11 +251,11 @@ public:
         bool apsd() const { return _apsd; }
 
         /**
-         * \brief Getter for the reserved flag.
+         * \brief Getter for the radio measurement flag.
          *
          * \return Bool indicating the flag's value.
          */
-        bool reserved() const { return _reserved; }
+        bool radio_measurement() const { return _radio_measurement; }
 
         /**
          * \brief Getter for the dsss_ofdm flag.
@@ -337,11 +363,11 @@ public:
         void apsd(bool new_value) { _apsd = new_value; }
 
         /**
-         * \brief Setter for the reserved flag.
+         * \brief Setter for the radio measurement flag.
          *
          * \param new_value bool indicating the flag's new value.
          */
-        void reserved(bool new_value) { _reserved = new_value; }
+        void radio_measurement(bool new_value) { _radio_measurement = new_value; }
 
         /**
          * \brief Setter for the dsss_ofdm flag.
@@ -409,14 +435,14 @@ public:
         
         address_type dfs_owner;
         uint8_t recovery_interval; 
-        channels_type channel_map;
+        channel_map_type channel_map;
        
         ibss_dfs_params() {}
        
         ibss_dfs_params(const address_type &addr, 
-          uint8_t recovery_interval, const channels_type &channels)
+          uint8_t recovery_interval, const channel_map_type &channel_map)
         : dfs_owner(addr), recovery_interval(recovery_interval),
-          channel_map(channels) {}
+          channel_map(channel_map) {}
 
         static ibss_dfs_params from_option(const option &opt);
     };
@@ -834,7 +860,7 @@ public:
      * 
      * \return std::string containing the ssid.
      */
-    RSNInformation rsn_information();
+    RSNInformation rsn_information() const;
     
     /**
      * \brief Helper method to search for this PDU's SSID.

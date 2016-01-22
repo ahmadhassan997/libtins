@@ -28,7 +28,7 @@
  */
 
 #include "packet_sender.h"
-#ifndef WIN32
+#ifndef _WIN32
     #include <sys/socket.h>
     #include <sys/select.h>
     #include <sys/time.h>
@@ -66,16 +66,22 @@
 #include "ieee802_3.h"
 #include "internals.h"
 
+using std::string;
+using std::runtime_error;
 
 namespace Tins {
 const int PacketSender::INVALID_RAW_SOCKET = -1;
 const uint32_t PacketSender::DEFAULT_TIMEOUT = 2;
 
-#ifndef WIN32
+#ifndef _WIN32
+    typedef int socket_type;
+    
     const char *make_error_string() {
         return strerror(errno);
     }
 #else
+    typedef SOCKET socket_type;
+
     // fixme
     const char *make_error_string() {
         return "error";
@@ -85,7 +91,7 @@ const uint32_t PacketSender::DEFAULT_TIMEOUT = 2;
 PacketSender::PacketSender(const NetworkInterface &iface, uint32_t recv_timeout, 
   uint32_t usec) 
 : _sockets(SOCKETS_END, INVALID_RAW_SOCKET), 
-#if !defined(BSD) && !defined(WIN32) && !defined(__FreeBSD_kernel__)
+#if !defined(BSD) && !defined(_WIN32) && !defined(__FreeBSD_kernel__)
   _ether_socket(INVALID_RAW_SOCKET),
 #endif
   _timeout(recv_timeout), _timeout_usec(usec), default_iface(iface)
@@ -100,19 +106,26 @@ PacketSender::PacketSender(const NetworkInterface &iface, uint32_t recv_timeout,
 PacketSender::~PacketSender() {
     for(unsigned i(0); i < _sockets.size(); ++i) {
         if(_sockets[i] != INVALID_RAW_SOCKET) 
-        #ifndef WIN32
+        #ifndef _WIN32
             ::close(_sockets[i]);
         #else
             ::closesocket(_sockets[i]);
         #endif
     }
     #if defined(BSD) || defined(__FreeBSD_kernel__)
-    for(BSDEtherSockets::iterator it = _ether_socket.begin(); it != _ether_socket.end(); ++it)
-        ::close(it->second);
-    #elif !defined(WIN32)
-    if(_ether_socket != INVALID_RAW_SOCKET)
-        ::close(_ether_socket);
+        for(BSDEtherSockets::iterator it = _ether_socket.begin(); it != _ether_socket.end(); ++it)
+            ::close(it->second);
+    #elif !defined(_WIN32)
+        if(_ether_socket != INVALID_RAW_SOCKET)
+            ::close(_ether_socket);
     #endif
+
+    #ifdef HAVE_PACKET_SENDER_PCAP_SENDPACKET
+        for (PcapHandleMap::iterator it = pcap_handles.begin(); it != pcap_handles.end(); ++it) {
+            pcap_close(it->second);
+        }
+        pcap_handles.clear();
+    #endif // HAVE_PACKET_SENDER_PCAP_SENDPACKET
 }
 
 void PacketSender::default_interface(const NetworkInterface &iface) {
@@ -123,7 +136,9 @@ const NetworkInterface& PacketSender::default_interface() const {
     return default_iface;
 }
 
-#ifndef WIN32
+#if !defined(_WIN32) || defined(HAVE_PACKET_SENDER_PCAP_SENDPACKET)
+
+#ifndef _WIN32
 bool PacketSender::ether_socket_initialized(const NetworkInterface& iface) const {
     #if defined(BSD) || defined(__FreeBSD_kernel__)
     return _ether_socket.count(iface.id());
@@ -141,9 +156,39 @@ int PacketSender::get_ether_socket(const NetworkInterface& iface) {
     return _ether_socket;
     #endif
 }
+#endif // _WIN32
+
+#ifdef HAVE_PACKET_SENDER_PCAP_SENDPACKET
+
+pcap_t* PacketSender::make_pcap_handle(const NetworkInterface& iface) const {
+    #ifdef _WIN32
+        #define TINS_PREFIX_INTERFACE(x) ("\\Device\\NPF_" + x)
+    #else // _WIN32
+        #define TINS_PREFIX_INTERFACE(x) (x)
+    #endif // _WIN32
+
+    char error[PCAP_ERRBUF_SIZE];
+    pcap_t* handle = pcap_create(TINS_PREFIX_INTERFACE(iface.name()).c_str(), error);
+    if (!handle) {
+        throw runtime_error("Error opening pcap handle: " + string(error));
+    }
+    if (pcap_set_promisc(handle, 1) < 0) {
+        throw runtime_error("Failed to set pcap handle promisc mode: " + string(pcap_geterr(handle)));
+    }
+    if (pcap_activate(handle) < 0) {
+        throw runtime_error("Failed to activate pcap handle: " + string(pcap_geterr(handle)));
+    }
+    return handle;
+}
+
+#endif // HAVE_PACKET_SENDER_PCAP_SENDPACKET
 
 void PacketSender::open_l2_socket(const NetworkInterface& iface) {
-    #if defined(BSD) || defined(__FreeBSD_kernel__)
+    #ifdef HAVE_PACKET_SENDER_PCAP_SENDPACKET
+        if (pcap_handles.count(iface) == 0) {
+            pcap_handles.insert(std::make_pair(iface, make_pcap_handle(iface)));
+        }
+    #elif defined(BSD) || defined(__FreeBSD_kernel__)
         int sock = -1;
         // At some point, there should be an available device
         for (int i = 0; sock == -1;i++) {
@@ -178,27 +223,27 @@ void PacketSender::open_l2_socket(const NetworkInterface& iface) {
     }
     #endif
 }
-#endif // WIN32
+#endif // !_WIN32 || HAVE_PACKET_SENDER_PCAP_SENDPACKET
 
 void PacketSender::open_l3_socket(SocketType type) {
     int socktype = find_type(type);
     if(socktype == -1)
         throw invalid_socket_type();
     if(_sockets[type] == INVALID_RAW_SOCKET) {
-        int sockfd;
+        socket_type sockfd;
         sockfd = socket((type == IPV6_SOCKET) ? AF_INET6 : AF_INET, SOCK_RAW, socktype);
         if (sockfd < 0)
             throw socket_open_error(make_error_string());
 
         const int on = 1;
-        #ifndef WIN32
+        #ifndef _WIN32
         typedef const void* option_ptr;
         #else
         typedef const char* option_ptr;
         #endif
         setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL,(option_ptr)&on,sizeof(on));
 
-        _sockets[type] = sockfd;
+        _sockets[type] = static_cast<int>(sockfd);
     }
 }
 
@@ -211,7 +256,7 @@ void PacketSender::close_socket(SocketType type, const NetworkInterface &iface) 
         if(::close(it->second) == -1)
             throw socket_close_error(make_error_string());
         _ether_socket.erase(it);
-        #elif !defined(WIN32)
+        #elif !defined(_WIN32)
         if(_ether_socket == INVALID_RAW_SOCKET)
             throw invalid_socket_type();
         if(::close(_ether_socket) == -1)
@@ -222,7 +267,7 @@ void PacketSender::close_socket(SocketType type, const NetworkInterface &iface) 
     else {
         if(type >= SOCKETS_END || _sockets[type] == INVALID_RAW_SOCKET)
             throw invalid_socket_type();
-        #ifndef WIN32
+        #ifndef _WIN32
         if(close(_sockets[type]) == -1)
             throw socket_close_error(make_error_string());
         #else
@@ -258,28 +303,40 @@ PDU *PacketSender::send_recv(PDU &pdu, const NetworkInterface &iface) {
     try {
         pdu.send(*this, iface);
     }
-    catch(std::runtime_error&) {
+    catch(runtime_error&) {
         return 0;
     }
     return pdu.recv_response(*this, iface);
 }
 
-#ifndef WIN32
+#if !defined(_WIN32) || defined(HAVE_PACKET_SENDER_PCAP_SENDPACKET)
 void PacketSender::send_l2(PDU &pdu, struct sockaddr* link_addr, 
   uint32_t len_addr, const NetworkInterface &iface) 
 {
-    int sock = get_ether_socket(iface);
     PDU::serialization_type buffer = pdu.serialize();
-    if(!buffer.empty()) {
-        #if defined(BSD) || defined(__FreeBSD_kernel__)
-        if(::write(sock, &buffer[0], buffer.size()) == -1)
-        #else
-        if(::sendto(sock, &buffer[0], buffer.size(), 0, link_addr, len_addr) == -1)
-        #endif
-            throw socket_write_error(make_error_string());
-    }
+
+    #ifdef HAVE_PACKET_SENDER_PCAP_SENDPACKET
+        open_l2_socket(iface);
+        pcap_t* handle = pcap_handles[iface];
+        if (pcap_sendpacket(handle, (u_char*)&buffer[0], static_cast<int>(buffer.size())) != 0) {
+            throw runtime_error("Failed to send packet: " + string(pcap_geterr(handle)));
+        }
+    #else // HAVE_PACKET_SENDER_PCAP_SENDPACKET
+        int sock = get_ether_socket(iface);
+        if(!buffer.empty()) {
+            #if defined(BSD) || defined(__FreeBSD_kernel__)
+            if(::write(sock, &buffer[0], buffer.size()) == -1)
+            #else
+            if(::sendto(sock, &buffer[0], buffer.size(), 0, link_addr, len_addr) == -1)
+            #endif
+                throw socket_write_error(make_error_string());
+        }
+    #endif // HAVE_PACKET_SENDER_PCAP_SENDPACKET
 }
 
+#endif // !_WIN32 || HAVE_PACKET_SENDER_PCAP_SENDPACKET
+
+#ifndef _WIN32
 PDU *PacketSender::recv_l2(PDU &pdu, struct sockaddr *link_addr, 
   uint32_t len_addr, const NetworkInterface &iface) 
 {
@@ -287,14 +344,14 @@ PDU *PacketSender::recv_l2(PDU &pdu, struct sockaddr *link_addr,
     std::vector<int> sockets(1, sock);
     return recv_match_loop(sockets, pdu, link_addr, len_addr);
 }
-#endif // WIN32
+#endif // _WIN32
 
 PDU *PacketSender::recv_l3(PDU &pdu, struct sockaddr* link_addr, uint32_t len_addr, SocketType type) {
     open_l3_socket(type);
     std::vector<int> sockets(1, _sockets[type]);
     if(type == IP_TCP_SOCKET || type == IP_UDP_SOCKET) {
         #ifdef BSD
-            throw std::runtime_error("Receiving L3 packets not supported on this platform");
+            throw runtime_error("Receiving L3 packets not supported on this platform");
         #endif
         open_l3_socket(ICMP_SOCKET);
         sockets.push_back(_sockets[ICMP_SOCKET]);
@@ -306,12 +363,12 @@ void PacketSender::send_l3(PDU &pdu, struct sockaddr* link_addr, uint32_t len_ad
     open_l3_socket(type);
     int sock = _sockets[type];
     PDU::serialization_type buffer = pdu.serialize();
-    if(sendto(sock, (const char*)&buffer[0], buffer.size(), 0, link_addr, len_addr) == -1)
+    if(sendto(sock, (const char*)&buffer[0], static_cast<int>(buffer.size()), 0, link_addr, len_addr) == -1)
         throw socket_write_error(make_error_string());
 }
 
 PDU *PacketSender::recv_match_loop(const std::vector<int>& sockets, PDU &pdu, struct sockaddr* link_addr, uint32_t addrlen) {
-    #ifdef WIN32
+    #ifdef _WIN32
         typedef int socket_len_type;
         typedef int recvfrom_ret_type;
     #else
@@ -331,7 +388,7 @@ PDU *PacketSender::recv_match_loop(const std::vector<int>& sockets, PDU &pdu, st
     #endif
     
     timeout.tv_sec  = _timeout;
-    end_time.tv_sec = time(0) + _timeout;    
+    end_time.tv_sec = static_cast<long>(time(0) + _timeout);
     end_time.tv_usec = timeout.tv_usec = _timeout_usec;
     while(true) {
         FD_ZERO(&readfds);
@@ -369,11 +426,11 @@ PDU *PacketSender::recv_match_loop(const std::vector<int>& sockets, PDU &pdu, st
             }
         }
         struct timeval this_time, diff;
-        #ifdef WIN32
+        #ifdef _WIN32
             // fixme
         #else
             gettimeofday(&this_time, 0);
-        #endif // WIN32
+        #endif // _WIN32
         if(timeval_subtract(&diff, &end_time, &this_time))
             return 0;
         timeout.tv_sec = diff.tv_sec;

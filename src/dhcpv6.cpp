@@ -32,6 +32,8 @@
 #include "dhcpv6.h"
 #include "exceptions.h"
 
+using std::find_if;
+
 namespace Tins {
 DHCPv6::DHCPv6() : options_size() {
     std::fill(header_data, header_data + sizeof(header_data), 0);
@@ -58,7 +60,6 @@ DHCPv6::DHCPv6(const uint8_t *buffer, uint32_t total_sz)
         buffer += ipaddress_type::address_size * 2;
         total_sz -= ipaddress_type::address_size * 2;
     }
-    options_size = total_sz;
     while(total_sz) {
         if(total_sz < sizeof(uint16_t) * 2) 
             throw malformed_packet();
@@ -82,20 +83,39 @@ DHCPv6::DHCPv6(const uint8_t *buffer, uint32_t total_sz)
     
 void DHCPv6::add_option(const option &opt) {
     options_.push_back(opt);
+    options_size += opt.data_size() + sizeof(uint16_t) * 2;
 }
 
-const DHCPv6::option *DHCPv6::search_option(OptionTypes id) const {
-    for(options_type::const_iterator it = options_.begin(); it != options_.end(); ++it) {
-        if(it->option() == static_cast<uint16_t>(id))
-            return &*it;
+bool DHCPv6::remove_option(OptionTypes type) {
+    options_type::iterator iter = search_option_iterator(type);
+    if (iter == options_.end()) {
+        return false;
     }
-    return 0;
+    options_size -= iter->data_size() + sizeof(uint16_t) * 2;
+    options_.erase(iter);
+    return true;
+}
+
+const DHCPv6::option *DHCPv6::search_option(OptionTypes type) const {
+    // Search for the iterator. If we found something, return it, otherwise return nullptr.
+    options_type::const_iterator iter = search_option_iterator(type);
+    return (iter != options_.end()) ? &*iter : 0;
+}
+
+DHCPv6::options_type::const_iterator DHCPv6::search_option_iterator(OptionTypes type) const {
+    Internals::option_type_equality_comparator<option> comparator(type);
+    return find_if(options_.begin(), options_.end(), comparator);
+}
+
+DHCPv6::options_type::iterator DHCPv6::search_option_iterator(OptionTypes type) {
+    Internals::option_type_equality_comparator<option> comparator(type);
+    return find_if(options_.begin(), options_.end(), comparator);
 }
 
 uint8_t* DHCPv6::write_option(const option &opt, uint8_t* buffer) const {
     uint16_t uint16_t_buffer = Endian::host_to_be(opt.option());
     std::memcpy(buffer, &uint16_t_buffer, sizeof(uint16_t));
-    uint16_t_buffer = Endian::host_to_be<uint16_t>(opt.length_field());
+    uint16_t_buffer = Endian::host_to_be(static_cast<uint16_t>(opt.length_field()));
     std::memcpy(&buffer[sizeof(uint16_t)], &uint16_t_buffer, sizeof(uint16_t));
     return std::copy(
         opt.data_ptr(), 
@@ -151,8 +171,9 @@ void DHCPv6::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *
         buffer = link_addr.copy(buffer);
         buffer = peer_addr.copy(buffer);
     }
-    for(options_type::const_iterator it = options_.begin(); it != options_.end(); ++it)
+    for(options_type::const_iterator it = options_.begin(); it != options_.end(); ++it) {
         buffer = write_option(*it, buffer);
+    }
 }
 
 
@@ -201,7 +222,7 @@ DHCPv6::status_code_type DHCPv6::status_code() const {
 }
 
 bool DHCPv6::has_rapid_commit() const {
-    return search_option(RAPID_COMMIT);
+    return search_option(RAPID_COMMIT) != NULL;
 }
 
 DHCPv6::user_class_type DHCPv6::user_class() const {
@@ -225,7 +246,7 @@ uint8_t DHCPv6::reconfigure_msg() const {
 }
 
 bool DHCPv6::has_reconfigure_accept() const {
-    return search_option(RECONF_ACCEPT);
+    return search_option(RECONF_ACCEPT) != NULL;
 }
 
 DHCPv6::duid_type DHCPv6::client_id() const {
@@ -632,7 +653,7 @@ DHCPv6::vendor_class_type DHCPv6::vendor_class_type::from_option(const option &o
     output.enterprise_number = Endian::be_to_host(output.enterprise_number);
     output.vendor_class_data = Internals::option2class_option_data<data_type>(
         opt.data_ptr() + sizeof(uint32_t),
-        opt.data_size() - sizeof(uint32_t)
+        static_cast<uint32_t>(opt.data_size() - sizeof(uint32_t))
     );
     
     return output;
@@ -660,7 +681,7 @@ DHCPv6::user_class_type DHCPv6::user_class_type::from_option(const option &opt)
         throw malformed_option();
     user_class_type output;
     output.data = Internals::option2class_option_data<data_type>(
-        opt.data_ptr(), opt.data_size()
+        opt.data_ptr(), static_cast<uint32_t>(opt.data_size())
     );
     return output;
 }

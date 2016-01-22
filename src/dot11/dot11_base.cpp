@@ -39,7 +39,7 @@
 #include "macros.h"
 #include "exceptions.h"
 
-#ifndef WIN32
+#ifndef _WIN32
     #if defined(__FreeBSD_kernel__) || defined(BSD) || defined(__APPLE__)
         #include <sys/types.h>
         #include <net/if_dl.h>
@@ -103,7 +103,17 @@ void Dot11::add_tagged_option(OptionTypes opt, uint8_t len, const uint8_t *val) 
 }
 
 void Dot11::internal_add_option(const option &opt) {
-    _options_size += opt.data_size() + sizeof(uint8_t) * 2;
+    _options_size += static_cast<uint32_t>(opt.data_size() + sizeof(uint8_t) * 2);
+}
+
+bool Dot11::remove_option(OptionTypes type) {
+    options_type::iterator iter = search_option_iterator(type);
+    if (iter == _options.end()) {
+        return false;
+    }
+    _options_size -= static_cast<uint32_t>(iter->data_size() + sizeof(uint8_t) * 2);
+    _options.erase(iter);
+    return true;
 }
 
 void Dot11::add_option(const option &opt) {
@@ -111,11 +121,20 @@ void Dot11::add_option(const option &opt) {
     _options.push_back(opt);
 }
 
-const Dot11::option *Dot11::search_option(OptionTypes opt) const {
-    for(std::list<option>::const_iterator it = _options.begin(); it != _options.end(); ++it)
-        if(it->option() == (uint8_t)opt)
-            return &(*it);
-    return 0;
+const Dot11::option *Dot11::search_option(OptionTypes type) const {
+    // Search for the iterator. If we found something, return it, otherwise return nullptr.
+    options_type::const_iterator iter = search_option_iterator(type);
+    return (iter != _options.end()) ? &*iter : 0;
+}
+
+Dot11::options_type::const_iterator Dot11::search_option_iterator(OptionTypes type) const {
+    Internals::option_type_equality_comparator<option> comparator(static_cast<uint8_t>(type));
+    return find_if(_options.begin(), _options.end(), comparator);
+}
+
+Dot11::options_type::iterator Dot11::search_option_iterator(OptionTypes type) {
+    Internals::option_type_equality_comparator<option> comparator(static_cast<uint8_t>(type));
+    return find_if(_options.begin(), _options.end(), comparator);
 }
 
 void Dot11::protocol(small_uint<2> new_proto) {
@@ -171,7 +190,7 @@ uint32_t Dot11::header_size() const {
     return sz;
 }
 
-#ifndef WIN32
+#ifndef _WIN32
 void Dot11::send(PacketSender &sender, const NetworkInterface &iface) {
     if(!iface)
         throw invalid_interface();
@@ -191,7 +210,7 @@ void Dot11::send(PacketSender &sender, const NetworkInterface &iface) {
         sender.send_l2(*this, 0, 0, iface);
     #endif
 }
-#endif // WIN32
+#endif // _WIN32
 
 void Dot11::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *parent) {
     #ifdef TINS_DEBUG
@@ -212,7 +231,7 @@ void Dot11::write_serialization(uint8_t *buffer, uint32_t total_sz, const PDU *p
     #endif
     for(std::list<option>::const_iterator it = _options.begin(); it != _options.end(); ++it) {
         *(buffer++) = it->option();
-        *(buffer++) = it->length_field();
+        *(buffer++) = static_cast<uint8_t>(it->length_field());
         std::copy(it->data_ptr(), it->data_ptr() + it->data_size(), buffer);
         buffer += it->data_size();
     }

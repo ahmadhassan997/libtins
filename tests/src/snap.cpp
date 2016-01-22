@@ -88,7 +88,7 @@ TEST_F(SNAPTest, ClonePDU) {
     snap1.org_code(0xfab1c3);
     snap1.control(0x1);
     SNAP *snap2 = static_cast<SNAP*>(snap1.clone());
-    ASSERT_TRUE(snap2);
+    ASSERT_TRUE(snap2 != NULL);
     test_equals(snap1, *snap2);
     
     delete snap2;
@@ -104,7 +104,7 @@ TEST_F(SNAPTest, ConstructorFromBuffer) {
     EXPECT_EQ(0x0800, snap1.eth_type()); 
     EXPECT_EQ(1U, snap1.org_code()); 
     
-    SNAP snap2(&buffer[0], buffer.size());
+    SNAP snap2(&buffer[0], (uint32_t)buffer.size());
     test_equals(snap1, snap2);
 }
 

@@ -34,7 +34,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include "macros.h"
-#ifndef WIN32
+#ifndef _WIN32
     #if defined(BSD) || defined(__FreeBSD_kernel__)
         #include <net/if_dl.h>
     #else
@@ -43,6 +43,7 @@
     #include <netinet/in.h>
     #include <net/ethernet.h>
 #endif
+#include "config.h"
 #include "ethernetII.h"
 #include "packet_sender.h"
 #include "rawpdu.h"
@@ -111,12 +112,17 @@ uint32_t EthernetII::trailer_size() const {
     return padding;
 }
 
-#ifndef WIN32
 void EthernetII::send(PacketSender &sender, const NetworkInterface &iface) {
     if(!iface)
         throw invalid_interface();
-    
-    #if !defined(BSD) && !defined(__FreeBSD_kernel__)
+    #if defined(HAVE_PACKET_SENDER_PCAP_SENDPACKET) || defined(BSD) || defined(__FreeBSD_kernel__)
+        // Sending using pcap_sendpacket/BSD bpf packet mode is the same here
+        sender.send_l2(*this, 0, 0, iface);
+    #elif defined(_WIN32)
+        // On Windows we can only send l2 PDUs using pcap_sendpacket
+        throw std::runtime_error("LIBTINS_USE_PCAP_SENDPACKET is not enabled");
+    #else
+        // Default GNU/Linux behaviour
         struct sockaddr_ll addr;
 
         memset(&addr, 0, sizeof(struct sockaddr_ll));
@@ -128,11 +134,8 @@ void EthernetII::send(PacketSender &sender, const NetworkInterface &iface) {
         memcpy(&(addr.sll_addr), _eth.dst_mac, address_type::address_size);
 
         sender.send_l2(*this, (struct sockaddr*)&addr, (uint32_t)sizeof(addr));
-    #else
-        sender.send_l2(*this, 0, 0, iface);
     #endif
 }
-#endif // WIN32
 
 bool EthernetII::matches_response(const uint8_t *ptr, uint32_t total_sz) const {
     if(total_sz < sizeof(ethhdr))
@@ -158,7 +161,9 @@ void EthernetII::write_serialization(uint8_t *buffer, uint32_t total_sz, const P
         Constants::Ethernet::e flag = Internals::pdu_flag_to_ether_type(
             inner_pdu()->pdu_type()
         );
-        payload_type(static_cast<uint16_t>(flag));
+        if (flag != Constants::Ethernet::UNKNOWN) {
+            payload_type(static_cast<uint16_t>(flag));
+        }
     }
     memcpy(buffer, &_eth, sizeof(ethhdr));
     uint32_t trailer = trailer_size();
@@ -171,7 +176,7 @@ void EthernetII::write_serialization(uint8_t *buffer, uint32_t total_sz, const P
 
 }
 
-#ifndef WIN32
+#ifndef _WIN32
 PDU *EthernetII::recv_response(PacketSender &sender, const NetworkInterface &iface) {
     #if !defined(BSD) && !defined(__FreeBSD_kernel__)
         struct sockaddr_ll addr;
@@ -188,5 +193,5 @@ PDU *EthernetII::recv_response(PacketSender &sender, const NetworkInterface &ifa
         return sender.recv_l2(*this, 0, 0, iface);
     #endif
 }
-#endif // WIN32
+#endif // _WIN32
 }

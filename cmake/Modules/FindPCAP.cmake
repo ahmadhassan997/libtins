@@ -18,6 +18,7 @@
 #  PCAP_LIBRARY              The libpcap library (possibly includes a thread
 #                            library e.g. required by pf_ring's libpcap)
 #  HAVE_PF_RING              If a found version of libpcap supports PF_RING
+#  HAVE_PCAP_IMMEDIATE_MODE  If the version of libpcap found supports immediate mode
 
 find_path(PCAP_ROOT_DIR
     NAMES include/pcap.h
@@ -28,9 +29,17 @@ find_path(PCAP_INCLUDE_DIR
     HINTS ${PCAP_ROOT_DIR}/include
 )
 
+set (HINT_DIR ${PCAP_ROOT_DIR}/lib)
+
+# On x64 windows, we should look also for the .lib at /lib/x64/
+# as this is the default path for the WinPcap developer's pack
+if (${CMAKE_SIZEOF_VOID_P} EQUAL 8 AND WIN32)
+    set (HINT_DIR ${PCAP_ROOT_DIR}/lib/x64/ ${HINT_DIR})
+endif ()
+
 find_library(PCAP_LIBRARY
     NAMES pcap wpcap
-    HINTS ${PCAP_ROOT_DIR}/lib
+    HINTS ${HINT_DIR}
 )
 
 include(FindPackageHandleStandardArgs)
@@ -65,6 +74,7 @@ endif (NOT PCAP_LINKS_SOLO)
 include(CheckFunctionExists)
 set(CMAKE_REQUIRED_LIBRARIES ${PCAP_LIBRARY})
 check_function_exists(pcap_get_pfring_id HAVE_PF_RING)
+check_function_exists(pcap_set_immediate_mode HAVE_PCAP_IMMEDIATE_MODE)
 set(CMAKE_REQUIRED_LIBRARIES)
 
 mark_as_advanced(
